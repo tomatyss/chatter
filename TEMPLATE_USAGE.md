@@ -46,7 +46,7 @@ chatter template create my_assistant --description "My custom assistant"
 
 ## Built-in Templates
 
-Chatter comes with 10 professionally crafted templates:
+Chatter comes with 11 professionally crafted templates:
 
 ### Development
 - **coding_assistant**: Expert programming assistant for code help and debugging
@@ -55,6 +55,7 @@ Chatter comes with 10 professionally crafted templates:
 
 ### Creative & Writing
 - **creative_writer**: Creative writing assistant for stories, poems, and creative content
+- **message_editor**: Message editor agent that reviews and improves English text
 - **translator**: Professional translator with cultural context awareness
 
 ### Education & Analysis
@@ -218,7 +219,20 @@ chatter template use creative_writer
 chatter query "Explain REST APIs" --template technical_writer
 ```
 
-### Example 4: Custom Learning Assistant
+### Example 4: Message Editing
+
+```bash
+# Use message editor template to improve text
+chatter query "me and my friend goes to store yesterday" --template message_editor
+
+# Output: "My friend and I went to the store yesterday."
+
+# Or in interactive mode
+chatter --template message_editor
+# Then paste text that needs improvement
+```
+
+### Example 5: Custom Learning Assistant
 
 ```bash
 # Create a custom template for learning Python
