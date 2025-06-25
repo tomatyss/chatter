@@ -1,0 +1,49 @@
+# Rust build artifacts
+/target/
+
+# Rust-specific
+**/*.rs.bk
+*.orig
+
+# OS-specific files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+*~
+
+# Editor and IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+.vim/
+*~
+
+# Environment and configuration
+.env
+.env.local
+.env.*.local
+
+# Logs and debugging
+*.log
+*.pdb
+
+# Temporary files
+*.tmp
+*.temp
+*.bak
+
+# Coverage reports
+tarpaulin-report.html
+cobertura.xml
+lcov.info
+
+# Documentation build
+/doc/
+
+# Rust analyzer
+.rust-analyzer/
