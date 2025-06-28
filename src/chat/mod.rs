@@ -159,7 +159,7 @@ impl ChatSession {
             spinner.set_message("Gemini is thinking...");
             spinner.enable_steady_tick(std::time::Duration::from_millis(100));
 
-            // Send message with streaming
+            // Send message with streaming, fallback to non-streaming on failure
             match self.send_message_stream(client, input).await {
                 Ok(mut stream) => {
                     spinner.finish_and_clear();
@@ -167,6 +167,8 @@ impl ChatSession {
                     io::stdout().flush()?;
 
                     let mut full_response = String::new();
+                    let mut stream_failed = false;
+                    
                     while let Some(chunk_result) = stream.next().await {
                         match chunk_result {
                             Ok(chunk) => {
@@ -175,8 +177,24 @@ impl ChatSession {
                                 full_response.push_str(&chunk);
                             }
                             Err(e) => {
-                                println!("\n❌ Stream error: {}", e);
+                                println!("\n⚠️  Stream error: {}", e);
+                                println!("🔄 Falling back to non-streaming mode...");
+                                stream_failed = true;
                                 break;
+                            }
+                        }
+                    }
+
+                    // If streaming failed, try non-streaming mode
+                    if stream_failed {
+                        match self.send_message(client, input).await {
+                            Ok(response) => {
+                                println!("\n{} {}", "Gemini:".bright_green().bold(), response);
+                                full_response = response;
+                            }
+                            Err(e) => {
+                                println!("❌ Non-streaming fallback also failed: {}", e);
+                                continue;
                             }
                         }
                     }
@@ -186,11 +204,24 @@ impl ChatSession {
                         self.add_message(Content::model(full_response));
                     }
 
-                    println!(); // New line after response
+                    if !stream_failed {
+                        println!(); // New line after response (only if streaming succeeded)
+                    }
                 }
                 Err(e) => {
                     spinner.finish_and_clear();
-                    println!("❌ Error: {}", e);
+                    println!("⚠️  Streaming failed: {}", e);
+                    println!("🔄 Trying non-streaming mode...");
+                    
+                    // Fallback to non-streaming mode
+                    match self.send_message(client, input).await {
+                        Ok(response) => {
+                            println!("\n{} {}", "Gemini:".bright_green().bold(), response);
+                        }
+                        Err(e) => {
+                            println!("❌ Non-streaming fallback also failed: {}", e);
+                        }
+                    }
                 }
             }
 

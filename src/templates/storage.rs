@@ -87,6 +87,7 @@ impl TemplateStorage {
     }
 
     /// Check if a template exists in storage
+    #[allow(dead_code)]
     pub fn exists(&self, name: &str) -> bool {
         let filename = format!("{}.json", sanitize_filename(name));
         let path = self.templates_dir.join(filename);
@@ -94,12 +95,14 @@ impl TemplateStorage {
     }
 
     /// Get the path to a template file
+    #[allow(dead_code)]
     pub fn get_template_path(&self, name: &str) -> PathBuf {
         let filename = format!("{}.json", sanitize_filename(name));
         self.templates_dir.join(filename)
     }
 
     /// Get the templates directory path
+    #[allow(dead_code)]
     pub fn get_templates_dir(&self) -> &PathBuf {
         &self.templates_dir
     }

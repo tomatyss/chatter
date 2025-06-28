@@ -78,18 +78,21 @@ impl Template {
     }
 
     /// Update the template content
+    #[allow(dead_code)]
     pub fn update_content(&mut self, content: String) {
         self.content = content;
         self.updated_at = Utc::now();
     }
 
     /// Update the template description
+    #[allow(dead_code)]
     pub fn update_description(&mut self, description: String) {
         self.description = description;
         self.updated_at = Utc::now();
     }
 
     /// Add a tag to the template
+    #[allow(dead_code)]
     pub fn add_tag(&mut self, tag: String) {
         if !self.tags.contains(&tag) {
             self.tags.push(tag);
@@ -98,6 +101,7 @@ impl Template {
     }
 
     /// Remove a tag from the template
+    #[allow(dead_code)]
     pub fn remove_tag(&mut self, tag: &str) {
         if let Some(pos) = self.tags.iter().position(|t| t == tag) {
             self.tags.remove(pos);
@@ -252,6 +256,7 @@ impl TemplateManager {
     }
 
     /// Get all unique tags
+    #[allow(dead_code)]
     pub fn get_tags(&self) -> Vec<String> {
         let mut tags: Vec<String> = self.templates
             .values()

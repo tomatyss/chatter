@@ -16,8 +16,8 @@ pub use client::GeminiClient;
 const GEMINI_API_BASE: &str = "https://generativelanguage.googleapis.com/v1beta";
 
 /// HTTP client configuration
-const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
-const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
+const REQUEST_TIMEOUT: Duration = Duration::from_secs(300); // 5 minutes for streaming responses
+const CONNECT_TIMEOUT: Duration = Duration::from_secs(30);  // 30 seconds to establish connection
 
 /// Content part in a message
 #[derive(Debug, Clone, Serialize, Deserialize)]
