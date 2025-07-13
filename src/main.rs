@@ -6,6 +6,7 @@
 use anyhow::Result;
 use clap::Parser;
 
+mod agent;
 mod api;
 mod chat;
 mod cli;

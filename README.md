@@ -5,6 +5,7 @@ A terminal-based chat interface for Google's Gemini AI, built in Rust.
 ## Features
 
 - **Interactive Chat Mode**: Real-time conversation with Gemini AI
+- **Agent Mode**: Autonomous file operations with tool execution
 - **Streaming Responses**: See responses as they're generated
 - **Multi-turn Conversations**: Maintains conversation history for context
 - **Multiple Models**: Support for different Gemini models (2.5-flash, 2.5-pro, etc.)
@@ -80,6 +81,45 @@ chatter --load-session my-chat.json
 # Auto-save the session
 chatter --auto-save
 ```
+
+### Agent Mode
+
+Enable autonomous file operations with agent mode:
+
+```bash
+# In interactive chat, enable agent mode
+/agent on
+
+# The AI can now execute file operations automatically
+You: Please read the file config.json and search for TODO comments in all Rust files
+
+🔧 AGENT: Executing tool: read_file
+   💭 Reading file content as requested
+   ✅ Successfully read 245 bytes from config.json
+
+🔧 AGENT: Executing tool: search_files  
+   💭 Searching for files as requested
+   ✅ Found 3 matches in 12 files
+```
+
+#### Agent Commands
+
+- `/agent on` - Enable agent mode
+- `/agent off` - Disable agent mode  
+- `/agent status` - Show agent status
+- `/agent history` - Show tool execution history
+- `/agent tools` - List available tools
+- `/agent config` - Show agent configuration
+- `/agent help` - Show agent help
+
+#### Available Tools
+
+- **read_file** - Read file contents
+- **write_file** - Create or overwrite files
+- **update_file** - Update files with targeted changes
+- **search_files** - Search for patterns across files
+- **list_directory** - List directory contents
+- **file_info** - Get detailed file information
 
 ### Interactive Commands
 

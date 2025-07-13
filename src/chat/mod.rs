@@ -3,9 +3,13 @@
 //! Handles interactive chat sessions, conversation history, and terminal UI.
 
 use crate::api::{Content, GeminiClient};
+use crate::agent::Agent;
 use anyhow::{anyhow, Result};
 use chrono::{DateTime, Utc};
 use colored::*;
+use dialoguer::console;
+use crossterm::event::{read, Event, KeyCode, KeyEvent, KeyModifiers};
+use crossterm::terminal::{disable_raw_mode, enable_raw_mode};
 use indicatif::{ProgressBar, ProgressStyle};
 use serde::{Deserialize, Serialize};
 use std::fs;
@@ -17,6 +21,7 @@ use uuid::Uuid;
 pub mod session;
 pub mod history;
 pub mod display;
+pub mod agent_commands;
 
 /// A chat session with conversation history
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -118,17 +123,36 @@ impl ChatSession {
         client: &GeminiClient,
         auto_save: bool,
     ) -> Result<()> {
+        self.start_interactive_chat_with_agent(client, auto_save, None).await
+    }
+
+    /// Start interactive chat mode with optional agent support
+    pub async fn start_interactive_chat_with_agent(
+        &mut self,
+        client: &GeminiClient,
+        auto_save: bool,
+        mut agent: Option<Agent>,
+    ) -> Result<()> {
         // Display welcome message
         self.display_welcome();
+
+        // Show agent status if available
+        if let Some(ref agent) = agent {
+            if agent.is_enabled() {
+                println!("🤖 {} Agent mode is active! I can help with file operations.", "AGENT:".bright_green().bold());
+                println!("   Use '/agent help' for agent commands.");
+            }
+        }
+
+        // Track recent messages for completion detection
+        let mut recent_messages = Vec::new();
 
         // Main chat loop
         loop {
             // Get user input
-            print!("\n{} ", "You:".bright_blue().bold());
-            io::stdout().flush()?;
-
-            let mut input = String::new();
-            io::stdin().read_line(&mut input)?;
+            print!("\n");
+            let prompt = format!("{} ", "You:".bright_blue().bold());
+            let input = read_input_with_features(&prompt)?;
             let input = input.trim();
 
             // Handle special commands
@@ -142,87 +166,92 @@ impl ChatSession {
             }
 
             if input.starts_with('/') {
+                // Handle agent commands
+                if input.starts_with("/agent") {
+                    let parts: Vec<&str> = input.splitn(2, ' ').collect();
+                    let args = parts.get(1).unwrap_or(&"");
+                    if let Err(e) = agent_commands::handle_agent_command("/agent", args, &mut agent).await {
+                        println!("❌ Agent command error: {}", e);
+                    }
+                    continue;
+                }
+
+                // Handle regular commands
                 if let Err(e) = self.handle_command(input, client).await {
                     println!("❌ Command error: {}", e);
                 }
                 continue;
             }
 
-            // Show thinking indicator
-            let spinner = ProgressBar::new_spinner();
-            spinner.set_style(
-                ProgressStyle::default_spinner()
-                    .template("{spinner:.green} {msg}")
-                    .unwrap()
-                    .tick_strings(&["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]),
-            );
-            spinner.set_message("Gemini is thinking...");
-            spinner.enable_steady_tick(std::time::Duration::from_millis(100));
+            // Process agent tools if enabled
+            if let Ok(Some(tool_result)) = agent_commands::process_agent_tools(input, &mut agent).await {
+                // If agent tools were executed, include their results in the conversation
+                let enhanced_message = format!("{}\n\nAgent tool results:\n{}", input, tool_result);
+                
+                // Add user message and tool results to history
+                self.add_message(Content::user(enhanced_message.clone()));
+                
+                // Continue with AI response using the enhanced message
+                let ai_input = &enhanced_message;
+                
+                // Show thinking indicator
+                let spinner = ProgressBar::new_spinner();
+                spinner.set_style(
+                    ProgressStyle::default_spinner()
+                        .template("{spinner:.green} {msg}")
+                        .unwrap()
+                        .tick_strings(&["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]),
+                );
+                spinner.set_message("Gemini is thinking...");
+                spinner.enable_steady_tick(std::time::Duration::from_millis(100));
 
-            // Send message with streaming, fallback to non-streaming on failure
-            match self.send_message_stream(client, input).await {
-                Ok(mut stream) => {
-                    spinner.finish_and_clear();
-                    print!("\n{} ", "Gemini:".bright_green().bold());
-                    io::stdout().flush()?;
-
-                    let mut full_response = String::new();
-                    let mut stream_failed = false;
-                    
-                    while let Some(chunk_result) = stream.next().await {
-                        match chunk_result {
-                            Ok(chunk) => {
-                                print!("{}", chunk);
-                                io::stdout().flush()?;
-                                full_response.push_str(&chunk);
-                            }
-                            Err(e) => {
-                                println!("\n⚠️  Stream error: {}", e);
-                                println!("🔄 Falling back to non-streaming mode...");
-                                stream_failed = true;
-                                break;
-                            }
-                        }
+                // Send enhanced message to AI
+                match self.send_ai_response(client, ai_input, &spinner).await {
+                    Ok(response) => {
+                        recent_messages.push(response);
                     }
-
-                    // If streaming failed, try non-streaming mode
-                    if stream_failed {
-                        match self.send_message(client, input).await {
-                            Ok(response) => {
-                                println!("\n{} {}", "Gemini:".bright_green().bold(), response);
-                                full_response = response;
-                            }
-                            Err(e) => {
-                                println!("❌ Non-streaming fallback also failed: {}", e);
-                                continue;
-                            }
-                        }
-                    }
-
-                    // Add the complete response to history
-                    if !full_response.is_empty() {
-                        self.add_message(Content::model(full_response));
-                    }
-
-                    if !stream_failed {
-                        println!(); // New line after response (only if streaming succeeded)
+                    Err(e) => {
+                        println!("❌ AI response failed: {}", e);
+                        continue;
                     }
                 }
-                Err(e) => {
-                    spinner.finish_and_clear();
-                    println!("⚠️  Streaming failed: {}", e);
-                    println!("🔄 Trying non-streaming mode...");
-                    
-                    // Fallback to non-streaming mode
-                    match self.send_message(client, input).await {
-                        Ok(response) => {
-                            println!("\n{} {}", "Gemini:".bright_green().bold(), response);
-                        }
-                        Err(e) => {
-                            println!("❌ Non-streaming fallback also failed: {}", e);
-                        }
+            } else {
+                // Regular message without agent tools
+                self.add_message(Content::user(input.to_string()));
+                recent_messages.push(input.to_string());
+
+                // Show thinking indicator
+                let spinner = ProgressBar::new_spinner();
+                spinner.set_style(
+                    ProgressStyle::default_spinner()
+                        .template("{spinner:.green} {msg}")
+                        .unwrap()
+                        .tick_strings(&["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]),
+                );
+                spinner.set_message("Gemini is thinking...");
+                spinner.enable_steady_tick(std::time::Duration::from_millis(100));
+
+                // Send regular message to AI
+                match self.send_ai_response(client, input, &spinner).await {
+                    Ok(response) => {
+                        recent_messages.push(response);
+                    }
+                    Err(e) => {
+                        println!("❌ AI response failed: {}", e);
+                        continue;
                     }
                 }
+            }
+
+            // Keep only recent messages for completion detection
+            if recent_messages.len() > 10 {
+                recent_messages.drain(0..recent_messages.len() - 10);
+            }
+
+            // Check for task completion
+            if agent_commands::check_task_completion(&recent_messages, &agent) {
+                println!("\n🎉 {} Task appears to be complete! The agent has finished the requested work.", "AGENT:".bright_green().bold());
+                println!("   You can continue the conversation or type 'exit' to quit.");
             }
 
             // Auto-save if enabled
@@ -451,4 +480,142 @@ impl ChatSession {
 
         Ok(())
     }
+
+    /// Send a message to AI and handle the response with streaming
+    async fn send_ai_response(
+        &mut self,
+        client: &GeminiClient,
+        message: &str,
+        spinner: &ProgressBar,
+    ) -> Result<String> {
+        // Send message with streaming, fallback to non-streaming on failure
+        match self.send_message_stream(client, message).await {
+            Ok(mut stream) => {
+                spinner.finish_and_clear();
+                print!("\n{} ", "Gemini:".bright_green().bold());
+                io::stdout().flush()?;
+
+                let mut full_response = String::new();
+                let mut stream_failed = false;
+                
+                while let Some(chunk_result) = stream.next().await {
+                    match chunk_result {
+                        Ok(chunk) => {
+                            print!("{}", chunk);
+                            io::stdout().flush()?;
+                            full_response.push_str(&chunk);
+                        }
+                        Err(e) => {
+                            println!("\n⚠️  Stream error: {}", e);
+                            println!("🔄 Falling back to non-streaming mode...");
+                            stream_failed = true;
+                            break;
+                        }
+                    }
+                }
+
+                // If streaming failed, try non-streaming mode
+                if stream_failed {
+                    match self.send_message(client, message).await {
+                        Ok(response) => {
+                            println!("\n{} {}", "Gemini:".bright_green().bold(), response);
+                            full_response = response;
+                        }
+                        Err(e) => {
+                            return Err(anyhow!("Non-streaming fallback also failed: {}", e));
+                        }
+                    }
+                } else {
+                    // Add the complete response to history
+                    if !full_response.is_empty() {
+                        self.add_message(Content::model(full_response.clone()));
+                    }
+                    println!(); // New line after response
+                }
+
+                Ok(full_response)
+            }
+            Err(e) => {
+                spinner.finish_and_clear();
+                println!("⚠️  Streaming failed: {}", e);
+                println!("🔄 Trying non-streaming mode...");
+                
+                // Fallback to non-streaming mode
+                match self.send_message(client, message).await {
+                    Ok(response) => {
+                        println!("\n{} {}", "Gemini:".bright_green().bold(), response);
+                        Ok(response)
+                    }
+                    Err(e) => {
+                        Err(anyhow!("Non-streaming fallback also failed: {}", e))
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Read user input with support for arrow keys, backspace, and multiline input.
+fn read_input_with_features(prompt: &str) -> Result<String> {
+    enable_raw_mode()?;
+    let mut buffer = String::new();
+    let mut position = 0;
+
+    // Print prompt for the first time
+    print!("{}", prompt);
+    io::stdout().flush()?;
+
+    let prompt_width = console::strip_ansi_codes(prompt).chars().count();
+
+    loop {
+        if let Event::Key(KeyEvent { code, modifiers, .. }) = read()? {
+            match code {
+                KeyCode::Char(c) => {
+                    if modifiers == KeyModifiers::SHIFT && c == 'M' {
+                        // This is likely a Shift+Enter paste, handle it as a newline
+                        buffer.insert(position, '\n');
+                        position += 1;
+                    } else {
+                        buffer.insert(position, c);
+                        position += 1;
+                    }
+                }
+                KeyCode::Backspace => {
+                    if position > 0 {
+                        position -= 1;
+                        buffer.remove(position);
+                    }
+                }
+                KeyCode::Enter => {
+                    if modifiers == KeyModifiers::SHIFT {
+                        buffer.insert(position, '\n');
+                        position += 1;
+                    } else {
+                        break;
+                    }
+                }
+                KeyCode::Left => {
+                    if position > 0 {
+                        position -= 1;
+                    }
+                }
+                KeyCode::Right => {
+                    if position < buffer.len() {
+                        position += 1;
+                    }
+                }
+                _ => {}
+            }
+
+            // Redraw the line
+            print!("\r\x1B[K"); // Clear the line
+            print!("{}", prompt); // Reprint the prompt
+            print!("{}", buffer);
+            print!("\r\x1B[{}C", prompt_width + position); // Move cursor to position
+            io::stdout().flush()?;
+        }
+    }
+
+    disable_raw_mode()?;
+    Ok(buffer)
 }
