@@ -7,13 +7,12 @@ use crate::agent::Agent;
 use anyhow::{anyhow, Result};
 use chrono::{DateTime, Utc};
 use colored::*;
-use dialoguer::console;
-use crossterm::event::{read, Event, KeyCode, KeyEvent, KeyModifiers};
-use crossterm::terminal::{disable_raw_mode, enable_raw_mode};
 use indicatif::{ProgressBar, ProgressStyle};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::io::{self, Write};
+use rustyline::error::ReadlineError;
+use rustyline::{DefaultEditor};
 use std::path::Path;
 use tokio_stream::StreamExt;
 use uuid::Uuid;
@@ -150,8 +149,8 @@ impl ChatSession {
         // Main chat loop
         loop {
             // Get user input
-            print!("\n");
-            let prompt = format!("{} ", "You:".bright_blue().bold());
+            let prompt = format!("
+{} ", "You:".bright_blue().bold());
             let input = read_input_with_features(&prompt)?;
             let input = input.trim();
 
@@ -171,14 +170,14 @@ impl ChatSession {
                     let parts: Vec<&str> = input.splitn(2, ' ').collect();
                     let args = parts.get(1).unwrap_or(&"");
                     if let Err(e) = agent_commands::handle_agent_command("/agent", args, &mut agent).await {
-                        println!("❌ Agent command error: {}", e);
+                        println!("❌ Agent command error: {e}");
                     }
                     continue;
                 }
 
                 // Handle regular commands
                 if let Err(e) = self.handle_command(input, client).await {
-                    println!("❌ Command error: {}", e);
+                    println!("❌ Command error: {e}");
                 }
                 continue;
             }
@@ -186,7 +185,7 @@ impl ChatSession {
             // Process agent tools if enabled
             if let Ok(Some(tool_result)) = agent_commands::process_agent_tools(input, &mut agent).await {
                 // If agent tools were executed, include their results in the conversation
-                let enhanced_message = format!("{}\n\nAgent tool results:\n{}", input, tool_result);
+                let enhanced_message = format!("{input}\n\nAgent tool results:\n{tool_result}");
                 
                 // Add user message and tool results to history
                 self.add_message(Content::user(enhanced_message.clone()));
@@ -211,7 +210,7 @@ impl ChatSession {
                         recent_messages.push(response);
                     }
                     Err(e) => {
-                        println!("❌ AI response failed: {}", e);
+                        println!("❌ AI response failed: {e}");
                         continue;
                     }
                 }
@@ -237,7 +236,7 @@ impl ChatSession {
                         recent_messages.push(response);
                     }
                     Err(e) => {
-                        println!("❌ AI response failed: {}", e);
+                        println!("❌ AI response failed: {e}");
                         continue;
                     }
                 }
@@ -258,7 +257,7 @@ impl ChatSession {
             if auto_save {
                 let filename = format!("session_{}.json", self.id);
                 if let Err(e) = self.save_to_file(&filename).await {
-                    println!("⚠️  Failed to auto-save session: {}", e);
+                    println!("⚠️  Failed to auto-save session: {e}");
                 }
             }
         }
@@ -339,7 +338,7 @@ impl ChatSession {
                     self.system_instruction = Some(template.content.clone());
                     println!("📝 Applied template: {} - {}", template.name.bright_green(), template.description);
                 } else {
-                    println!("❌ Template '{}' not found", args);
+                    println!("❌ Template '{args}' not found");
                 }
             }
             "/templates" => {
@@ -381,7 +380,7 @@ impl ChatSession {
                     return Err(anyhow!("Please specify a filename"));
                 }
                 self.save_to_file(args).await?;
-                println!("💾 Session saved to {}", args);
+                println!("💾 Session saved to {args}");
             }
             "/model" => {
                 if args.is_empty() {
@@ -394,7 +393,7 @@ impl ChatSession {
             "/system" => {
                 if args.is_empty() {
                     match &self.system_instruction {
-                        Some(instruction) => println!("Current system instruction: {}", instruction),
+                        Some(instruction) => println!("Current system instruction: {instruction}"),
                         None => println!("No system instruction set"),
                     }
                 } else {
@@ -420,22 +419,24 @@ impl ChatSession {
                 
                 // Check if we have a system instruction to save
                 if let Some(ref instruction) = self.system_instruction {
-                    use dialoguer::Input;
                     
                     // Get template details interactively
-                    let description: String = Input::new()
+                    let description: String = dialoguer::Input::new()
                         .with_prompt("Template description")
-                        .interact()?;
+                        .interact()
+                        .unwrap_or_else(|_| String::new());
                     
-                    let category: String = Input::new()
+                    let category: String = dialoguer::Input::new()
                         .with_prompt("Template category")
                         .default("custom".to_string())
-                        .interact()?;
+                        .interact()
+                        .unwrap_or_else(|_| String::from("custom"));
                     
-                    let tags_input: String = Input::new()
+                    let tags_input: String = dialoguer::Input::new()
                         .with_prompt("Tags (comma-separated)")
                         .default("".to_string())
-                        .interact()?;
+                        .interact()
+                        .unwrap_or_else(|_| String::new());
                     
                     let tags: Vec<String> = tags_input
                         .split(',')
@@ -455,10 +456,10 @@ impl ChatSession {
                     let mut manager = crate::templates::TemplateManager::new().await?;
                     match manager.create(template).await {
                         Ok(()) => {
-                            println!("✅ Template '{}' saved successfully!", args);
+                            println!("✅ Template '{args}' saved successfully!");
                         }
                         Err(e) => {
-                            println!("❌ Failed to save template: {}", e);
+                            println!("❌ Failed to save template: {e}");
                         }
                     }
                 } else {
@@ -501,12 +502,12 @@ impl ChatSession {
                 while let Some(chunk_result) = stream.next().await {
                     match chunk_result {
                         Ok(chunk) => {
-                            print!("{}", chunk);
+                            print!("{chunk}");
                             io::stdout().flush()?;
                             full_response.push_str(&chunk);
                         }
                         Err(e) => {
-                            println!("\n⚠️  Stream error: {}", e);
+                            println!("\n⚠️  Stream error: {e}");
                             println!("🔄 Falling back to non-streaming mode...");
                             stream_failed = true;
                             break;
@@ -537,7 +538,7 @@ impl ChatSession {
             }
             Err(e) => {
                 spinner.finish_and_clear();
-                println!("⚠️  Streaming failed: {}", e);
+                println!("⚠️  Streaming failed: {e}");
                 println!("🔄 Trying non-streaming mode...");
                 
                 // Fallback to non-streaming mode
@@ -557,65 +558,36 @@ impl ChatSession {
 
 /// Read user input with support for arrow keys, backspace, and multiline input.
 fn read_input_with_features(prompt: &str) -> Result<String> {
-    enable_raw_mode()?;
-    let mut buffer = String::new();
-    let mut position = 0;
-
-    // Print prompt for the first time
-    print!("{}", prompt);
-    io::stdout().flush()?;
-
-    let prompt_width = console::strip_ansi_codes(prompt).chars().count();
-
-    loop {
-        if let Event::Key(KeyEvent { code, modifiers, .. }) = read()? {
-            match code {
-                KeyCode::Char(c) => {
-                    if modifiers == KeyModifiers::SHIFT && c == 'M' {
-                        // This is likely a Shift+Enter paste, handle it as a newline
-                        buffer.insert(position, '\n');
-                        position += 1;
-                    } else {
-                        buffer.insert(position, c);
-                        position += 1;
-                    }
-                }
-                KeyCode::Backspace => {
-                    if position > 0 {
-                        position -= 1;
-                        buffer.remove(position);
-                    }
-                }
-                KeyCode::Enter => {
-                    if modifiers == KeyModifiers::SHIFT {
-                        buffer.insert(position, '\n');
-                        position += 1;
-                    } else {
-                        break;
-                    }
-                }
-                KeyCode::Left => {
-                    if position > 0 {
-                        position -= 1;
-                    }
-                }
-                KeyCode::Right => {
-                    if position < buffer.len() {
-                        position += 1;
-                    }
-                }
-                _ => {}
-            }
-
-            // Redraw the line
-            print!("\r\x1B[K"); // Clear the line
-            print!("{}", prompt); // Reprint the prompt
-            print!("{}", buffer);
-            print!("\r\x1B[{}C", prompt_width + position); // Move cursor to position
-            io::stdout().flush()?;
-        }
+    let mut rl = DefaultEditor::new()?;
+    
+    let history_path = dirs::data_dir()
+        .ok_or_else(|| anyhow!("Failed to find data directory"))?
+        .join("chatter/history.txt");
+    
+    if let Some(parent) = history_path.parent() {
+        fs::create_dir_all(parent)?;
     }
+    
+    let _ = rl.load_history(&history_path);
 
-    disable_raw_mode()?;
-    Ok(buffer)
+    let input = match rl.readline(prompt) {
+        Ok(line) => {
+            let _ = rl.add_history_entry(line.as_str());
+            let _ = rl.save_history(&history_path);
+            Ok(line)
+        }
+        Err(ReadlineError::Interrupted) => {
+            println!("👋 Goodbye!");
+            std::process::exit(0);
+        }
+        Err(ReadlineError::Eof) => {
+            println!("👋 Goodbye!");
+            std::process::exit(0);
+        }
+        Err(err) => {
+            Err(anyhow!("Failed to read line: {}", err))
+        }
+    };
+    
+    input
 }

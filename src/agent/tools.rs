@@ -203,7 +203,7 @@ impl ToolImpl for ReadFileTool {
                     Some(format!("Successfully read {} bytes from {}", content.len(), path.display())),
                 ))
             }
-            Err(e) => Ok(ToolResult::error(format!("Failed to read file: {}", e))),
+            Err(e) => Ok(ToolResult::error(format!("Failed to read file: {e}"))),
         }
     }
 }
@@ -255,7 +255,7 @@ impl ToolImpl for WriteFileTool {
         if let Some(parent) = path.parent() {
             if !parent.exists() {
                 if let Err(e) = fs::create_dir_all(parent) {
-                    return Ok(ToolResult::error(format!("Failed to create directories: {}", e)));
+                    return Ok(ToolResult::error(format!("Failed to create directories: {e}")));
                 }
             }
         }
@@ -272,7 +272,7 @@ impl ToolImpl for WriteFileTool {
                     vec![path.to_path_buf()],
                 ))
             }
-            Err(e) => Ok(ToolResult::error(format!("Failed to write file: {}", e))),
+            Err(e) => Ok(ToolResult::error(format!("Failed to write file: {e}"))),
         }
     }
 }
@@ -339,7 +339,7 @@ impl ToolImpl for UpdateFileTool {
 
         let original_content = match fs::read_to_string(path) {
             Ok(content) => content,
-            Err(e) => return Ok(ToolResult::error(format!("Failed to read file: {}", e))),
+            Err(e) => return Ok(ToolResult::error(format!("Failed to read file: {e}"))),
         };
 
         let new_content = match operation {
@@ -362,7 +362,7 @@ impl ToolImpl for UpdateFileTool {
                     .and_then(|v| v.as_str())
                     .ok_or_else(|| anyhow!("Missing 'replacement' parameter for append operation"))?;
 
-                format!("{}\n{}", original_content, content_to_add)
+                format!("{original_content}\n{content_to_add}")
             }
             "prepend" => {
                 let content_to_add = parameters
@@ -370,7 +370,7 @@ impl ToolImpl for UpdateFileTool {
                     .and_then(|v| v.as_str())
                     .ok_or_else(|| anyhow!("Missing 'replacement' parameter for prepend operation"))?;
 
-                format!("{}\n{}", content_to_add, original_content)
+                format!("{content_to_add}\n{original_content}")
             }
             "insert_at_line" => {
                 let line_number = parameters
@@ -390,10 +390,10 @@ impl ToolImpl for UpdateFileTool {
                     lines.insert(insert_index, content_to_add);
                     lines.join("\n")
                 } else {
-                    return Ok(ToolResult::error(format!("Line number {} is out of range", line_number)));
+                    return Ok(ToolResult::error(format!("Line number {line_number} is out of range")));
                 }
             }
-            _ => return Ok(ToolResult::error(format!("Unknown operation: {}", operation))),
+            _ => return Ok(ToolResult::error(format!("Unknown operation: {operation}"))),
         };
 
         match fs::write(path, &new_content) {
@@ -410,7 +410,7 @@ impl ToolImpl for UpdateFileTool {
                     vec![path.to_path_buf()],
                 ))
             }
-            Err(e) => Ok(ToolResult::error(format!("Failed to update file: {}", e))),
+            Err(e) => Ok(ToolResult::error(format!("Failed to update file: {e}"))),
         }
     }
 }
@@ -489,18 +489,18 @@ impl ToolImpl for SearchFilesTool {
                     // If regex fails, treat as literal string
                     match Regex::new(&regex::escape(pattern)) {
                         Ok(r) => r,
-                        Err(e) => return Ok(ToolResult::error(format!("Invalid pattern: {}", e))),
+                        Err(e) => return Ok(ToolResult::error(format!("Invalid pattern: {e}"))),
                     }
                 }
             }
         } else {
-            match Regex::new(&format!("(?i){}", pattern)) {
+            match Regex::new(&format!("(?i){pattern}")) {
                 Ok(r) => r,
                 Err(_) => {
                     // If regex fails, treat as literal string
                     match Regex::new(&format!("(?i){}", regex::escape(pattern))) {
                         Ok(r) => r,
-                        Err(e) => return Ok(ToolResult::error(format!("Invalid pattern: {}", e))),
+                        Err(e) => return Ok(ToolResult::error(format!("Invalid pattern: {e}"))),
                     }
                 }
             }
@@ -687,7 +687,7 @@ impl ToolImpl for ListDirectoryTool {
                         }));
                     }
                 }
-                Err(e) => return Ok(ToolResult::error(format!("Failed to read directory: {}", e))),
+                Err(e) => return Ok(ToolResult::error(format!("Failed to read directory: {e}"))),
             }
         }
 
@@ -745,7 +745,7 @@ impl ToolImpl for FileInfoTool {
 
         let metadata = match path.metadata() {
             Ok(m) => m,
-            Err(e) => return Ok(ToolResult::error(format!("Failed to get metadata: {}", e))),
+            Err(e) => return Ok(ToolResult::error(format!("Failed to get metadata: {e}"))),
         };
 
         let file_type = if metadata.is_dir() {
@@ -821,7 +821,7 @@ fn glob_match(pattern: &str, text: &str) -> bool {
         .replace("*", ".*")
         .replace("?", ".");
     
-    if let Ok(regex) = Regex::new(&format!("^{}$", regex_pattern)) {
+    if let Ok(regex) = Regex::new(&format!("^{regex_pattern}$")) {
         regex.is_match(text)
     } else {
         false

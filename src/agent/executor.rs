@@ -89,7 +89,7 @@ impl AgentExecutor {
 
         // Perform safety checks
         if let Err(e) = self.safety_manager.check_tool_call(&tool_call) {
-            return Ok(ToolResult::error(format!("Safety check failed: {}", e)));
+            return Ok(ToolResult::error(format!("Safety check failed: {e}")));
         }
 
         // Execute in dry-run mode if configured
@@ -112,7 +112,7 @@ impl AgentExecutor {
                 if let Some(_backup) = backup_info {
                     // For now, we'll keep the backup even on failure
                 }
-                return Ok(ToolResult::error(format!("Tool execution failed: {}", e)));
+                return Ok(ToolResult::error(format!("Tool execution failed: {e}")));
             }
         };
 
@@ -184,7 +184,7 @@ impl AgentExecutor {
             .and_then(|n| n.to_str())
             .ok_or_else(|| anyhow!("Invalid file name"))?;
         
-        let backup_name = format!("{}.backup_{}", file_name, timestamp);
+        let backup_name = format!("{file_name}.backup_{timestamp}");
         
         let backup_path = if let Some(parent) = original_path.parent() {
             parent.join(backup_name)

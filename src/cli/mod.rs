@@ -126,8 +126,10 @@ pub enum TemplateAction {
 
 /// Available Gemini models
 #[derive(Clone, Debug, ValueEnum)]
+#[derive(Default)]
 pub enum GeminiModel {
     #[value(name = "gemini-2.5-flash")]
+    #[default]
     Flash25,
     #[value(name = "gemini-2.5-pro")]
     Pro25,
@@ -149,8 +151,3 @@ impl GeminiModel {
     }
 }
 
-impl Default for GeminiModel {
-    fn default() -> Self {
-        GeminiModel::Flash25
-    }
-}

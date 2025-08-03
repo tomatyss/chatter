@@ -112,7 +112,7 @@ pub async fn handle_agent_command(
             }
         }
         _ => {
-            println!("❌ Unknown agent command: {}", command);
+            println!("❌ Unknown agent command: {command}");
         }
     }
 
@@ -183,7 +183,7 @@ pub async fn process_agent_tools(
                     }
                 }
                 Err(e) => {
-                    println!("   ❌ {}", format!("Tool execution error: {}", e).bright_red());
+                    println!("   ❌ {}", format!("Tool execution error: {e}").bright_red());
                     results.push(format!("Tool {} error: {}", tool_call.tool, e));
                 }
             }
@@ -206,7 +206,7 @@ fn format_tool_result(tool_name: &str, result: &crate::agent::ToolResult) -> Str
                 let path = result.data.get("path").and_then(|p| p.as_str()).unwrap_or("unknown");
                 let size = result.data.get("size").and_then(|s| s.as_u64()).unwrap_or(0);
                 
-                format!("📄 **File: {}** ({} bytes)\n```\n{}\n```", path, size, content)
+                format!("📄 **File: {path}** ({size} bytes)\n```\n{content}\n```")
             } else {
                 "File read completed".to_string()
             }
@@ -214,20 +214,19 @@ fn format_tool_result(tool_name: &str, result: &crate::agent::ToolResult) -> Str
         "write_file" => {
             let path = result.data.get("path").and_then(|p| p.as_str()).unwrap_or("unknown");
             let size = result.data.get("size").and_then(|s| s.as_u64()).unwrap_or(0);
-            format!("💾 **File written:** {} ({} bytes)", path, size)
+            format!("💾 **File written:** {path} ({size} bytes)")
         }
         "update_file" => {
             let path = result.data.get("path").and_then(|p| p.as_str()).unwrap_or("unknown");
             let operation = result.data.get("operation").and_then(|o| o.as_str()).unwrap_or("unknown");
-            format!("✏️ **File updated:** {} (operation: {})", path, operation)
+            format!("✏️ **File updated:** {path} (operation: {operation})")
         }
         "search_files" => {
             let pattern = result.data.get("pattern").and_then(|p| p.as_str()).unwrap_or("unknown");
             let matches_found = result.data.get("matches_found").and_then(|m| m.as_u64()).unwrap_or(0);
             let files_searched = result.data.get("files_searched").and_then(|f| f.as_u64()).unwrap_or(0);
             
-            let mut output = format!("🔍 **Search results for '{}':** {} matches in {} files", 
-                                   pattern, matches_found, files_searched);
+            let mut output = format!("🔍 **Search results for '{pattern}':** {matches_found} matches in {files_searched} files");
             
             if let Some(results) = result.data.get("results").and_then(|r| r.as_array()) {
                 if !results.is_empty() {
@@ -253,7 +252,7 @@ fn format_tool_result(tool_name: &str, result: &crate::agent::ToolResult) -> Str
             let path = result.data.get("path").and_then(|p| p.as_str()).unwrap_or("unknown");
             let entry_count = result.data.get("entry_count").and_then(|e| e.as_u64()).unwrap_or(0);
             
-            let mut output = format!("📁 **Directory listing for '{}':** {} entries", path, entry_count);
+            let mut output = format!("📁 **Directory listing for '{path}':** {entry_count} entries");
             
             if let Some(entries) = result.data.get("entries").and_then(|e| e.as_array()) {
                 if !entries.is_empty() {
@@ -264,7 +263,7 @@ fn format_tool_result(tool_name: &str, result: &crate::agent::ToolResult) -> Str
                             entry.get("type").and_then(|t| t.as_str())
                         ) {
                             let icon = if entry_type == "directory" { "📁" } else { "📄" };
-                            output.push_str(&format!("\n{} {}", icon, name));
+                            output.push_str(&format!("\n{icon} {name}"));
                         }
                     }
                     if entries.len() > 20 {
@@ -280,7 +279,7 @@ fn format_tool_result(tool_name: &str, result: &crate::agent::ToolResult) -> Str
             let file_type = result.data.get("type").and_then(|t| t.as_str()).unwrap_or("unknown");
             let size = result.data.get("size").and_then(|s| s.as_u64()).unwrap_or(0);
             
-            format!("ℹ️ **File info for '{}':** {} ({} bytes, type: {})", path, path, size, file_type)
+            format!("ℹ️ **File info for '{path}':** {path} ({size} bytes, type: {file_type})")
         }
         _ => {
             result.message.clone().unwrap_or_else(|| "Tool executed successfully".to_string())
