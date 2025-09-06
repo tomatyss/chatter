@@ -132,10 +132,17 @@ impl Agent {
         // Add to history
         self.tool_history.push(tool_call.clone());
 
-        // Execute the tool
-        let result = self.executor.execute(tool_call).await?;
-
-        Ok(result)
+        // Execute the tool and record activity
+        match self.executor.execute(tool_call).await {
+            Ok(result) => {
+                self.completion_detector.record_tool_execution();
+                Ok(result)
+            }
+            Err(e) => {
+                self.completion_detector.record_tool_execution();
+                Err(e)
+            }
+        }
     }
 
     /// Check if the current task appears to be complete

@@ -13,7 +13,7 @@ use std::fs;
 use std::io::{self, Write};
 use rustyline::error::ReadlineError;
 use rustyline::{DefaultEditor};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use tokio_stream::StreamExt;
 use uuid::Uuid;
 
@@ -121,8 +121,11 @@ impl ChatSession {
         &mut self,
         client: &GeminiClient,
         auto_save: bool,
+        sessions_dir: Option<PathBuf>,
     ) -> Result<()> {
-        self.start_interactive_chat_with_agent(client, auto_save, None).await
+        self
+            .start_interactive_chat_with_agent(client, auto_save, sessions_dir, None)
+            .await
     }
 
     /// Start interactive chat mode with optional agent support
@@ -130,6 +133,7 @@ impl ChatSession {
         &mut self,
         client: &GeminiClient,
         auto_save: bool,
+        sessions_dir: Option<PathBuf>,
         mut agent: Option<Agent>,
     ) -> Result<()> {
         // Display welcome message
@@ -256,7 +260,16 @@ impl ChatSession {
             // Auto-save if enabled
             if auto_save {
                 let filename = format!("session_{}.json", self.id);
-                if let Err(e) = self.save_to_file(&filename).await {
+                let path = if let Some(ref dir) = sessions_dir {
+                    if let Err(e) = fs::create_dir_all(dir) {
+                        println!("⚠️  Failed to ensure sessions directory exists: {e}");
+                    }
+                    dir.join(filename)
+                } else {
+                    PathBuf::from(&filename)
+                };
+
+                if let Err(e) = self.save_to_file(&path).await {
                     println!("⚠️  Failed to auto-save session: {e}");
                 }
             }
@@ -517,9 +530,22 @@ impl ChatSession {
 
                 // If streaming failed, try non-streaming mode
                 if stream_failed {
-                    match self.send_message(client, message).await {
+                    // Fallback without duplicating user message in history
+                    let history_len = self.history.len();
+                    let prior = if history_len > 0 { &self.history[..history_len - 1] } else { &self.history[..] };
+                    match client
+                        .send_message(
+                            &self.model,
+                            message,
+                            prior,
+                            self.system_instruction.as_deref(),
+                        )
+                        .await
+                    {
                         Ok(response) => {
                             println!("\n{} {}", "Gemini:".bright_green().bold(), response);
+                            // Add only the model response
+                            self.add_message(Content::model(response.clone()));
                             full_response = response;
                         }
                         Err(e) => {
@@ -542,9 +568,21 @@ impl ChatSession {
                 println!("🔄 Trying non-streaming mode...");
                 
                 // Fallback to non-streaming mode
-                match self.send_message(client, message).await {
+                let history_len = self.history.len();
+                let prior = if history_len > 0 { &self.history[..history_len - 1] } else { &self.history[..] };
+                match client
+                    .send_message(
+                        &self.model,
+                        message,
+                        prior,
+                        self.system_instruction.as_deref(),
+                    )
+                    .await
+                {
                     Ok(response) => {
                         println!("\n{} {}", "Gemini:".bright_green().bold(), response);
+                        // Add the model response to history (user already added)
+                        self.add_message(Content::model(response.clone()));
                         Ok(response)
                     }
                     Err(e) => {

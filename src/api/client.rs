@@ -5,6 +5,7 @@
 use super::*;
 use anyhow::{anyhow, Result};
 use futures_util::StreamExt;
+use std::collections::VecDeque;
 use reqwest::Client;
 use serde_json;
 use std::time::Duration;
@@ -91,42 +92,113 @@ impl GeminiClient {
             return Err(anyhow!("API request failed: {}", error_text));
         }
 
-        let stream = response
-            .bytes_stream()
-            .map(|chunk_result| {
-                match chunk_result {
-                    Ok(bytes) => {
+        // Streaming parser that accumulates across chunks and emits text events
+        struct SseParser {
+            buffer: String,
+            current_event: String,
+            queue: VecDeque<String>,
+            done: bool,
+        }
+
+        impl SseParser {
+            fn new() -> Self {
+                Self { buffer: String::new(), current_event: String::new(), queue: VecDeque::new(), done: false }
+            }
+
+            fn feed(&mut self, chunk: &str) {
+                self.buffer.push_str(chunk);
+                while let Some(pos) = self.buffer.find('\n') {
+                    let mut line = self.buffer[..pos].to_string();
+                    // Remove the processed line including the newline
+                    self.buffer.drain(..pos + 1);
+                    if line.ends_with('\r') { line.pop(); }
+                    let trimmed = line.trim();
+
+                    if trimmed.is_empty() {
+                        // End of event; try to parse accumulated JSON
+                        self.finalize_event();
+                        continue;
+                    }
+
+                    if let Some(data) = trimmed.strip_prefix("data: ") {
+                        if data == "[DONE]" {
+                            self.done = true;
+                            continue;
+                        }
+                        self.current_event.push_str(data);
+                    } else if trimmed.starts_with("event:") || trimmed.starts_with("id:") || trimmed.starts_with("retry:") || trimmed.starts_with(":") {
+                        // ignore control fields and comments
+                        continue;
+                    } else if trimmed.starts_with('{') {
+                        // Some servers may not prefix with data:
+                        self.current_event.push_str(trimmed);
+                    }
+                }
+            }
+
+            fn finalize_event(&mut self) {
+                let data = self.current_event.trim();
+                if !data.is_empty() {
+                    if let Ok(response) = serde_json::from_str::<GenerateContentResponse>(data) {
+                        if let Some(text) = response.text() {
+                            self.queue.push_back(text);
+                        }
+                    }
+                }
+                self.current_event.clear();
+            }
+
+            fn pop(&mut self) -> Option<String> {
+                self.queue.pop_front()
+            }
+
+            fn finish(&mut self) {
+                // Attempt to parse any remaining event data
+                if !self.current_event.trim().is_empty() {
+                    self.finalize_event();
+                }
+            }
+        }
+
+        let bytes_stream = response.bytes_stream();
+        let stream = futures_util::stream::unfold((bytes_stream, SseParser::new()), |(mut bs, mut parser)| async move {
+            loop {
+                if let Some(next) = parser.pop() {
+                    return Some((Ok(next), (bs, parser)));
+                }
+
+                match bs.next().await {
+                    Some(Ok(bytes)) => {
                         match String::from_utf8(bytes.to_vec()) {
-                            Ok(chunk_str) => {
-                                // Parse SSE format with better error handling
-                                match parse_sse_chunk_robust(&chunk_str) {
-                                    Ok(Some(text)) => Ok(text),
-                                    Ok(None) => Ok(String::new()), // Empty chunk is valid for SSE
-                                    Err(e) => Err(anyhow!("SSE parsing error: {}", e)),
-                                }
+                            Ok(s) => {
+                                parser.feed(&s);
+                                // continue loop to try emit
+                                continue;
                             }
-                            Err(e) => Err(anyhow!("UTF-8 decode error: {}", e)),
+                            Err(e) => {
+                                return Some((Err(anyhow!("UTF-8 decode error: {}", e)), (bs, parser)));
+                            }
                         }
                     }
-                    Err(e) => {
-                        // Categorize the error for better handling
+                    Some(Err(e)) => {
                         if e.is_timeout() {
-                            Err(anyhow!("Stream timeout: The response took too long"))
+                            return Some((Err(anyhow!("Stream timeout: The response took too long")), (bs, parser)));
                         } else if e.is_connect() {
-                            Err(anyhow!("Connection error: Failed to maintain connection"))
+                            return Some((Err(anyhow!("Connection error: Failed to maintain connection")), (bs, parser)));
                         } else {
-                            Err(anyhow!("Stream error: {}", e))
+                            return Some((Err(anyhow!("Stream error: {}", e)), (bs, parser)));
                         }
                     }
+                    None => {
+                        parser.finish();
+                        if let Some(next) = parser.pop() {
+                            return Some((Ok(next), (bs, parser)));
+                        }
+                        return None;
+                    }
                 }
-            })
-            .filter_map(|result| async move {
-                match result {
-                    Ok(text) if !text.trim().is_empty() => Some(Ok(text)),
-                    Ok(_) => None, // Skip empty chunks
-                    Err(e) => Some(Err(e)),
-                }
-            });
+            }
+        });
 
         Ok(Box::pin(stream))
     }

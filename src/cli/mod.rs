@@ -13,7 +13,7 @@ pub mod commands;
 pub struct Cli {
     /// Model to use for the conversation
     #[arg(short, long, value_enum)]
-    pub model: Option<String>,
+    pub model: Option<GeminiModel>,
 
     /// System instruction to guide the AI's behavior
     #[arg(short, long)]
@@ -48,8 +48,8 @@ pub enum Commands {
         /// The message to send
         message: String,
         /// Model to use for this query
-        #[arg(short, long)]
-        model: Option<String>,
+        #[arg(short, long, value_enum)]
+        model: Option<GeminiModel>,
         /// System instruction for this query
         #[arg(short, long)]
         system: Option<String>,
@@ -119,8 +119,8 @@ pub enum TemplateAction {
         /// Template name
         name: String,
         /// Model to use
-        #[arg(short, long)]
-        model: Option<String>,
+        #[arg(short, long, value_enum)]
+        model: Option<GeminiModel>,
     },
 }
 
@@ -150,4 +150,3 @@ impl GeminiModel {
         }
     }
 }
-
