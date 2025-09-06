@@ -124,7 +124,7 @@ impl Config {
         println!("  Auto-save: {}", self.auto_save);
         println!("  Sessions Directory: {}", self.sessions_dir.display());
         if let Some(ref system) = self.default_system_instruction {
-            println!("  Default System Instruction: {}", system);
+            println!("  Default System Instruction: {system}");
         }
     }
 

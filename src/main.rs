@@ -6,6 +6,7 @@
 use anyhow::Result;
 use clap::Parser;
 
+mod agent;
 mod api;
 mod chat;
 mod cli;
@@ -86,7 +87,7 @@ async fn handle_query_command(
     
     // Send the message and display response
     let response = session.send_message(&api_client, &message).await?;
-    println!("{}", response);
+    println!("{response}");
     
     Ok(())
 }
@@ -173,7 +174,7 @@ async fn handle_template_command(action: TemplateAction) -> Result<()> {
                 println!("{}", template.content);
                 println!("{}", "─".repeat(60).bright_black());
             } else {
-                println!("❌ Template '{}' not found", name);
+                println!("❌ Template '{name}' not found");
             }
         }
         
@@ -226,13 +227,13 @@ async fn handle_template_command(action: TemplateAction) -> Result<()> {
             let template = templates::Template::new(name.clone(), description, content, category, tags);
             
             manager.create(template).await?;
-            println!("✅ Template '{}' created successfully!", name);
+            println!("✅ Template '{name}' created successfully!");
         }
         
         TemplateAction::Edit { name } => {
             if let Some(existing) = manager.get(&name).cloned() {
                 if existing.builtin {
-                    println!("❌ Cannot edit built-in template '{}'", name);
+                    println!("❌ Cannot edit built-in template '{name}'");
                     return Ok(());
                 }
                 
@@ -268,16 +269,16 @@ async fn handle_template_command(action: TemplateAction) -> Result<()> {
                 updated.tags = tags;
                 
                 manager.update(&name, updated).await?;
-                println!("✅ Template '{}' updated successfully!", name);
+                println!("✅ Template '{name}' updated successfully!");
             } else {
-                println!("❌ Template '{}' not found", name);
+                println!("❌ Template '{name}' not found");
             }
         }
         
         TemplateAction::Delete { name, force } => {
             if let Some(template) = manager.get(&name) {
                 if template.builtin {
-                    println!("❌ Cannot delete built-in template '{}'", name);
+                    println!("❌ Cannot delete built-in template '{name}'");
                     return Ok(());
                 }
                 
@@ -285,19 +286,19 @@ async fn handle_template_command(action: TemplateAction) -> Result<()> {
                     true
                 } else {
                     Confirm::new()
-                        .with_prompt(&format!("Delete template '{}'?", name))
+                        .with_prompt(format!("Delete template '{name}'?"))
                         .default(false)
                         .interact()?
                 };
                 
                 if should_delete {
                     manager.delete(&name).await?;
-                    println!("✅ Template '{}' deleted successfully!", name);
+                    println!("✅ Template '{name}' deleted successfully!");
                 } else {
                     println!("❌ Template deletion cancelled");
                 }
             } else {
-                println!("❌ Template '{}' not found", name);
+                println!("❌ Template '{name}' not found");
             }
         }
         
@@ -320,7 +321,7 @@ async fn handle_template_command(action: TemplateAction) -> Result<()> {
                 // Start interactive chat
                 session.start_interactive_chat(&api_client, false).await?;
             } else {
-                println!("❌ Template '{}' not found", name);
+                println!("❌ Template '{name}' not found");
             }
         }
     }
