@@ -36,24 +36,55 @@ pub async fn handle_agent_command(
                         println!("❌ Agent mode is not initialized.");
                     }
                 }
-                "status" => {
-                    if let Some(ref agent) = agent {
-                        let status = agent.status();
-                        println!("🤖 {} Agent Status:", "AGENT:".bright_cyan().bold());
-                        println!("   Enabled: {}", if status.enabled { "Yes".bright_green() } else { "No".bright_red() });
-                        println!("   Tools executed: {}", status.tools_executed);
-                        println!("   Working directory: {}", status.working_directory.display());
-                        println!("   Dry run mode: {}", if status.dry_run_mode { "Yes".bright_yellow() } else { "No".bright_green() });
-                        println!("   Available tools: {}", status.available_tools.join(", "));
-                    } else {
-                        println!("❌ Agent mode is not initialized.");
-                    }
+            "status" => {
+                if let Some(ref agent) = agent {
+                    let status = agent.status();
+                    println!("🤖 {} Agent Status:", "AGENT:".bright_cyan().bold());
+                    println!("   Enabled: {}", if status.enabled { "Yes".bright_green() } else { "No".bright_red() });
+                    println!("   Tools executed: {}", status.tools_executed);
+                    println!("   Working directory: {}", status.working_directory.display());
+                    println!("   Dry run mode: {}", if status.dry_run_mode { "Yes".bright_yellow() } else { "No".bright_green() });
+                    println!("   Available tools: {}", status.available_tools.join(", "));
+                } else {
+                    println!("❌ Agent mode is not initialized.");
                 }
-                "history" => {
-                    if let Some(ref agent) = agent {
-                        let history = agent.tool_history();
-                        if history.is_empty() {
-                            println!("📭 No tool execution history.");
+            }
+            args if args.starts_with("dry-run") => {
+                if let Some(ref mut agent) = agent {
+                    let parts: Vec<&str> = args.split_whitespace().collect();
+                    if parts.len() < 2 {
+                        println!("Usage: /agent dry-run <on|off>");
+                    } else {
+                        let mut cfg = agent.config().clone();
+                        match parts[1] {
+                            "on" => {
+                                cfg.dry_run_mode = true;
+                                if let Err(e) = agent.update_config(cfg) {
+                                    println!("❌ Failed to enable dry-run: {e}");
+                                } else {
+                                    println!("🧪 {} Dry-run mode enabled. No changes will be written.", "AGENT:".bright_yellow().bold());
+                                }
+                            }
+                            "off" => {
+                                cfg.dry_run_mode = false;
+                                if let Err(e) = agent.update_config(cfg) {
+                                    println!("❌ Failed to disable dry-run: {e}");
+                                } else {
+                                    println!("✅ {} Dry-run mode disabled.", "AGENT:".bright_green().bold());
+                                }
+                            }
+                            _ => println!("Usage: /agent dry-run <on|off>"),
+                        }
+                    }
+                } else {
+                    println!("❌ Agent mode is not initialized.");
+                }
+            }
+            "history" => {
+                if let Some(ref agent) = agent {
+                    let history = agent.tool_history();
+                    if history.is_empty() {
+                        println!("📭 No tool execution history.");
                         } else {
                             println!("🤖 {} Tool Execution History:", "AGENT:".bright_cyan().bold());
                             for (i, tool_call) in history.iter().enumerate() {
@@ -129,6 +160,7 @@ fn display_agent_help() {
     println!("   {} - Clear tool execution history", "/agent clear".bright_red());
     println!("   {} - List available tools", "/agent tools".bright_blue());
     println!("   {} - Show agent configuration", "/agent config".bright_blue());
+    println!("   {} - Toggle dry-run mode (no writes)", "/agent dry-run <on|off>".bright_blue());
     println!("   {} - Show this help", "/agent help".bright_white());
     println!();
     println!("💡 {} When agent mode is enabled, I can automatically detect and execute", "TIP:".bright_yellow().bold());
