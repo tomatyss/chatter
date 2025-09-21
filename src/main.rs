@@ -71,13 +71,15 @@ async fn handle_config_command(action: cli::ConfigAction) -> Result<()> {
 /// Handle one-shot query commands
 async fn handle_query_command(
     message: String,
-    model: Option<String>,
+    model: Option<cli::GeminiModel>,
     system: Option<String>,
     template: Option<String>,
     config: Config,
 ) -> Result<()> {
     let api_client = api::GeminiClient::new(config.api_key.clone())?;
-    let model_name = model.unwrap_or_else(|| config.default_model.clone());
+    let model_name = model
+        .map(|m| m.as_str().to_string())
+        .unwrap_or_else(|| config.default_model.clone());
     
     // Resolve system instruction from template or direct input
     let system_instruction = resolve_system_instruction(system, template).await?;
@@ -97,7 +99,10 @@ async fn handle_interactive_chat(cli: Cli, config: Config) -> Result<()> {
     let api_client = api::GeminiClient::new(config.api_key.clone())?;
     
     // Determine model to use
-    let model = cli.model.unwrap_or_else(|| config.default_model.clone());
+    let model = cli
+        .model
+        .map(|m| m.as_str().to_string())
+        .unwrap_or_else(|| config.default_model.clone());
     
     // Resolve system instruction from template or direct input
     let system_instruction = resolve_system_instruction(cli.system, cli.template).await?;
@@ -110,7 +115,9 @@ async fn handle_interactive_chat(cli: Cli, config: Config) -> Result<()> {
     };
     
     // Start interactive chat
-    session.start_interactive_chat(&api_client, cli.auto_save).await?;
+    session
+        .start_interactive_chat(&api_client, cli.auto_save, Some(config.sessions_dir.clone()))
+        .await?;
     
     Ok(())
 }
@@ -309,7 +316,9 @@ async fn handle_template_command(action: TemplateAction) -> Result<()> {
                 let api_client = api::GeminiClient::new(config.api_key.clone())?;
                 
                 // Determine model to use
-                let model_name = model.unwrap_or_else(|| config.default_model.clone());
+                let model_name = model
+                    .map(|m| m.as_str().to_string())
+                    .unwrap_or_else(|| config.default_model.clone());
                 
                 // Create chat session with template
                 let mut session = ChatSession::new(model_name, Some(template.content.clone()));
@@ -319,7 +328,9 @@ async fn handle_template_command(action: TemplateAction) -> Result<()> {
                 println!();
                 
                 // Start interactive chat
-                session.start_interactive_chat(&api_client, false).await?;
+                session
+                    .start_interactive_chat(&api_client, false, Some(config.sessions_dir.clone()))
+                    .await?;
             } else {
                 println!("❌ Template '{name}' not found");
             }
