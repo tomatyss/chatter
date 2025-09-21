@@ -1,26 +1,26 @@
 //! Chat session management module
-//! 
+//!
 //! Handles interactive chat sessions, conversation history, and terminal UI.
 
-use crate::api::{Content, GeminiClient};
 use crate::agent::Agent;
+use crate::api::{Content, GeminiClient};
 use anyhow::{anyhow, Result};
 use chrono::{DateTime, Utc};
 use colored::*;
 use indicatif::{ProgressBar, ProgressStyle};
+use rustyline::error::ReadlineError;
+use rustyline::DefaultEditor;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::io::{self, Write};
-use rustyline::error::ReadlineError;
-use rustyline::{DefaultEditor};
 use std::path::{Path, PathBuf};
 use tokio_stream::StreamExt;
 use uuid::Uuid;
 
-pub mod session;
-pub mod history;
-pub mod display;
 pub mod agent_commands;
+pub mod display;
+pub mod history;
+pub mod session;
 
 /// A chat session with conversation history
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -123,8 +123,7 @@ impl ChatSession {
         auto_save: bool,
         sessions_dir: Option<PathBuf>,
     ) -> Result<()> {
-        self
-            .start_interactive_chat_with_agent(client, auto_save, sessions_dir, None)
+        self.start_interactive_chat_with_agent(client, auto_save, sessions_dir, None)
             .await
     }
 
@@ -142,7 +141,10 @@ impl ChatSession {
         // Show agent status if available
         if let Some(ref agent) = agent {
             if agent.is_enabled() {
-                println!("🤖 {} Agent mode is active! I can help with file operations.", "AGENT:".bright_green().bold());
+                println!(
+                    "🤖 {} Agent mode is active! I can help with file operations.",
+                    "AGENT:".bright_green().bold()
+                );
                 println!("   Use '/agent help' for agent commands.");
             }
         }
@@ -153,8 +155,11 @@ impl ChatSession {
         // Main chat loop
         loop {
             // Get user input
-            let prompt = format!("
-{} ", "You:".bright_blue().bold());
+            let prompt = format!(
+                "
+{} ",
+                "You:".bright_blue().bold()
+            );
             let input = read_input_with_features(&prompt)?;
             let input = input.trim();
 
@@ -173,7 +178,9 @@ impl ChatSession {
                 if input.starts_with("/agent") {
                     let parts: Vec<&str> = input.splitn(2, ' ').collect();
                     let args = parts.get(1).unwrap_or(&"");
-                    if let Err(e) = agent_commands::handle_agent_command("/agent", args, &mut agent).await {
+                    if let Err(e) =
+                        agent_commands::handle_agent_command("/agent", args, &mut agent).await
+                    {
                         println!("❌ Agent command error: {e}");
                     }
                     continue;
@@ -187,16 +194,18 @@ impl ChatSession {
             }
 
             // Process agent tools if enabled
-            if let Ok(Some(tool_result)) = agent_commands::process_agent_tools(input, &mut agent).await {
+            if let Ok(Some(tool_result)) =
+                agent_commands::process_agent_tools(input, &mut agent).await
+            {
                 // If agent tools were executed, include their results in the conversation
                 let enhanced_message = format!("{input}\n\nAgent tool results:\n{tool_result}");
-                
+
                 // Add user message and tool results to history
                 self.add_message(Content::user(enhanced_message.clone()));
-                
+
                 // Continue with AI response using the enhanced message
                 let ai_input = &enhanced_message;
-                
+
                 // Show thinking indicator
                 let spinner = ProgressBar::new_spinner();
                 spinner.set_style(
@@ -252,8 +261,21 @@ impl ChatSession {
             }
 
             // Check for task completion
-            if agent_commands::check_task_completion(&recent_messages, &agent) {
-                println!("\n🎉 {} Task appears to be complete! The agent has finished the requested work.", "AGENT:".bright_green().bold());
+            if let Some((status, confidence, patterns)) =
+                agent_commands::check_task_completion(&recent_messages, &agent)
+            {
+                println!(
+                    "\n🎉 {} Task appears to be complete! The agent has finished the requested work.",
+                    "AGENT:".bright_green().bold()
+                );
+                println!("   {}", status.description());
+                println!("   Confidence: {:.0}%", confidence * 100.0);
+                if !patterns.is_empty() {
+                    println!("   Matching patterns:");
+                    for pattern in patterns {
+                        println!("      • {}", pattern);
+                    }
+                }
                 println!("   You can continue the conversation or type 'exit' to quit.");
             }
 
@@ -281,17 +303,19 @@ impl ChatSession {
     /// Display welcome message
     fn display_welcome(&self) {
         println!("{}", "🤖 Chatter - Gemini AI Chat".bright_cyan().bold());
-        println!("Model: {} | Session: {}", 
-                 self.model.bright_yellow(), 
-                 self.id[..8].bright_magenta());
-        
+        println!(
+            "Model: {} | Session: {}",
+            self.model.bright_yellow(),
+            self.id[..8].bright_magenta()
+        );
+
         if let Some(ref instruction) = self.system_instruction {
             println!("System: {}", instruction.bright_white());
         }
-        
+
         println!("{}", "─".repeat(60).bright_black());
         println!("Type 'exit' to quit, '/help' for commands");
-        
+
         // Show conversation history if any
         if !self.history.is_empty() {
             println!("\n{}", "📜 Previous conversation:".bright_white().bold());
@@ -335,7 +359,9 @@ impl ChatSession {
                 println!("  /system <text>           - Set system instruction");
                 println!("  /template <name>         - Use template as system instruction");
                 println!("  /templates               - List available templates");
-                println!("  /save-template <name>    - Save current system instruction as template");
+                println!(
+                    "  /save-template <name>    - Save current system instruction as template"
+                );
                 println!("  /history                 - Show conversation history");
                 println!("  /info                    - Show session info");
             }
@@ -344,12 +370,16 @@ impl ChatSession {
                     println!("Usage: /template <name>");
                     return Ok(());
                 }
-                
+
                 // Load template manager
                 let manager = crate::templates::TemplateManager::new().await?;
                 if let Some(template) = manager.get(args) {
                     self.system_instruction = Some(template.content.clone());
-                    println!("📝 Applied template: {} - {}", template.name.bright_green(), template.description);
+                    println!(
+                        "📝 Applied template: {} - {}",
+                        template.name.bright_green(),
+                        template.description
+                    );
                 } else {
                     println!("❌ Template '{args}' not found");
                 }
@@ -358,28 +388,38 @@ impl ChatSession {
                 // Load template manager and list templates
                 let manager = crate::templates::TemplateManager::new().await?;
                 let templates = manager.list_all();
-                
+
                 if templates.is_empty() {
                     println!("📭 No templates available");
                     return Ok(());
                 }
-                
+
                 println!("📋 Available Templates:");
-                
+
                 // Group by category
-                let mut by_category: std::collections::HashMap<String, Vec<_>> = std::collections::HashMap::new();
+                let mut by_category: std::collections::HashMap<String, Vec<_>> =
+                    std::collections::HashMap::new();
                 for template in templates {
-                    by_category.entry(template.category.clone()).or_default().push(template);
+                    by_category
+                        .entry(template.category.clone())
+                        .or_default()
+                        .push(template);
                 }
-                
+
                 for (cat, templates) in by_category {
                     println!("\n{}", cat.bright_cyan().bold());
                     for template in templates {
-                        let builtin_marker = if template.builtin { " (built-in)".bright_black() } else { "".normal() };
-                        println!("  {} - {}{}", 
-                                 template.name.bright_green(), 
-                                 template.description,
-                                 builtin_marker);
+                        let builtin_marker = if template.builtin {
+                            " (built-in)".bright_black()
+                        } else {
+                            "".normal()
+                        };
+                        println!(
+                            "  {} - {}{}",
+                            template.name.bright_green(),
+                            template.description,
+                            builtin_marker
+                        );
                     }
                 }
                 println!();
@@ -429,34 +469,33 @@ impl ChatSession {
                     println!("Usage: /save-template <name>");
                     return Ok(());
                 }
-                
+
                 // Check if we have a system instruction to save
                 if let Some(ref instruction) = self.system_instruction {
-                    
                     // Get template details interactively
                     let description: String = dialoguer::Input::new()
                         .with_prompt("Template description")
                         .interact()
                         .unwrap_or_else(|_| String::new());
-                    
+
                     let category: String = dialoguer::Input::new()
                         .with_prompt("Template category")
                         .default("custom".to_string())
                         .interact()
                         .unwrap_or_else(|_| String::from("custom"));
-                    
+
                     let tags_input: String = dialoguer::Input::new()
                         .with_prompt("Tags (comma-separated)")
                         .default("".to_string())
                         .interact()
                         .unwrap_or_else(|_| String::new());
-                    
+
                     let tags: Vec<String> = tags_input
                         .split(',')
                         .map(|s| s.trim().to_string())
                         .filter(|s| !s.is_empty())
                         .collect();
-                    
+
                     // Create and save template
                     let template = crate::templates::Template::new(
                         args.to_string(),
@@ -465,7 +504,7 @@ impl ChatSession {
                         category,
                         tags,
                     );
-                    
+
                     let mut manager = crate::templates::TemplateManager::new().await?;
                     match manager.create(template).await {
                         Ok(()) => {
@@ -484,11 +523,20 @@ impl ChatSession {
                 println!("  ID: {}", self.id);
                 println!("  Model: {}", self.model);
                 println!("  Messages: {}", self.history.len());
-                println!("  Created: {}", self.created_at.format("%Y-%m-%d %H:%M:%S UTC"));
-                println!("  Updated: {}", self.updated_at.format("%Y-%m-%d %H:%M:%S UTC"));
+                println!(
+                    "  Created: {}",
+                    self.created_at.format("%Y-%m-%d %H:%M:%S UTC")
+                );
+                println!(
+                    "  Updated: {}",
+                    self.updated_at.format("%Y-%m-%d %H:%M:%S UTC")
+                );
             }
             _ => {
-                return Err(anyhow!("Unknown command: {}. Type /help for available commands", cmd));
+                return Err(anyhow!(
+                    "Unknown command: {}. Type /help for available commands",
+                    cmd
+                ));
             }
         }
 
@@ -511,7 +559,7 @@ impl ChatSession {
 
                 let mut full_response = String::new();
                 let mut stream_failed = false;
-                
+
                 while let Some(chunk_result) = stream.next().await {
                     match chunk_result {
                         Ok(chunk) => {
@@ -532,7 +580,11 @@ impl ChatSession {
                 if stream_failed {
                     // Fallback without duplicating user message in history
                     let history_len = self.history.len();
-                    let prior = if history_len > 0 { &self.history[..history_len - 1] } else { &self.history[..] };
+                    let prior = if history_len > 0 {
+                        &self.history[..history_len - 1]
+                    } else {
+                        &self.history[..]
+                    };
                     match client
                         .send_message(
                             &self.model,
@@ -566,10 +618,14 @@ impl ChatSession {
                 spinner.finish_and_clear();
                 println!("⚠️  Streaming failed: {e}");
                 println!("🔄 Trying non-streaming mode...");
-                
+
                 // Fallback to non-streaming mode
                 let history_len = self.history.len();
-                let prior = if history_len > 0 { &self.history[..history_len - 1] } else { &self.history[..] };
+                let prior = if history_len > 0 {
+                    &self.history[..history_len - 1]
+                } else {
+                    &self.history[..]
+                };
                 match client
                     .send_message(
                         &self.model,
@@ -585,9 +641,7 @@ impl ChatSession {
                         self.add_message(Content::model(response.clone()));
                         Ok(response)
                     }
-                    Err(e) => {
-                        Err(anyhow!("Non-streaming fallback also failed: {}", e))
-                    }
+                    Err(e) => Err(anyhow!("Non-streaming fallback also failed: {}", e)),
                 }
             }
         }
@@ -597,15 +651,15 @@ impl ChatSession {
 /// Read user input with support for arrow keys, backspace, and multiline input.
 fn read_input_with_features(prompt: &str) -> Result<String> {
     let mut rl = DefaultEditor::new()?;
-    
+
     let history_path = dirs::data_dir()
         .ok_or_else(|| anyhow!("Failed to find data directory"))?
         .join("chatter/history.txt");
-    
+
     if let Some(parent) = history_path.parent() {
         fs::create_dir_all(parent)?;
     }
-    
+
     let _ = rl.load_history(&history_path);
 
     let input = match rl.readline(prompt) {
@@ -622,10 +676,8 @@ fn read_input_with_features(prompt: &str) -> Result<String> {
             println!("👋 Goodbye!");
             std::process::exit(0);
         }
-        Err(err) => {
-            Err(anyhow!("Failed to read line: {}", err))
-        }
+        Err(err) => Err(anyhow!("Failed to read line: {}", err)),
     };
-    
+
     input
 }

@@ -1,12 +1,12 @@
 //! Tool execution engine for the agent
-//! 
+//!
 //! Manages tool registration, execution, and safety checks.
 
-use super::{AgentConfig, SafetyManager, ToolCall, ToolResult};
 use super::tools::{
-    Tool, ReadFileTool, WriteFileTool, UpdateFileTool, SearchFilesTool, 
-    ListDirectoryTool, FileInfoTool
+    FileInfoTool, ListDirectoryTool, ReadFileTool, SearchFilesTool, Tool, UpdateFileTool,
+    WriteFileTool,
 };
+use super::{AgentConfig, SafetyManager, ToolCall, ToolResult};
 use anyhow::{anyhow, Result};
 use std::collections::HashMap;
 
@@ -69,27 +69,25 @@ impl AgentExecutor {
         })
     }
 
-    /// Get information for all tools
-    pub fn get_all_tool_info(&self) -> Vec<ToolInfo> {
-        self.tools
-            .values()
-            .map(|tool| ToolInfo {
-                name: tool.name().to_string(),
-                description: tool.description().to_string(),
-                parameters: tool.parameters(),
-            })
-            .collect()
-    }
-
     /// Execute a tool call
     pub async fn execute(&self, tool_call: ToolCall) -> Result<ToolResult> {
         // Check if tool exists
-        let tool = self.tools.get(&tool_call.tool)
+        let tool = self
+            .tools
+            .get(&tool_call.tool)
             .ok_or_else(|| anyhow!("Unknown tool: {}", tool_call.tool))?;
 
         // Perform safety checks
         if let Err(e) = self.safety_manager.check_tool_call(&tool_call) {
             return Ok(ToolResult::error(format!("Safety check failed: {e}")));
+        }
+
+        // Validate parameters against tool schema before execution
+        if let Err(e) = self.validate_tool_call(&tool_call) {
+            return Ok(ToolResult::error(format!(
+                "Parameter validation failed: {}",
+                e
+            )));
         }
 
         // Execute in dry-run mode if configured
@@ -120,7 +118,10 @@ impl AgentExecutor {
         if let Some(backup) = backup_info {
             if result.success {
                 if let serde_json::Value::Object(ref mut obj) = result.data {
-                    obj.insert("backup_created".to_string(), serde_json::Value::String(backup));
+                    obj.insert(
+                        "backup_created".to_string(),
+                        serde_json::Value::String(backup),
+                    );
                 }
             }
         }
@@ -140,7 +141,10 @@ impl AgentExecutor {
 
         Ok(ToolResult::success(
             preview_data,
-            Some(format!("DRY RUN: Would execute {} with given parameters", tool_call.tool)),
+            Some(format!(
+                "DRY RUN: Would execute {} with given parameters",
+                tool_call.tool
+            )),
         ))
     }
 
@@ -156,20 +160,19 @@ impl AgentExecutor {
         }
 
         // Extract file path from parameters
-        let path = tool_call.parameters.get("path")
-            .and_then(|v| v.as_str());
+        let path = tool_call.parameters.get("path").and_then(|v| v.as_str());
 
         if let Some(file_path) = path {
             let path = std::path::Path::new(file_path);
-            
+
             // Only create backup if file exists
             if path.exists() && path.is_file() {
                 let backup_path = self.generate_backup_path(path)?;
-                
+
                 if let Err(e) = std::fs::copy(path, &backup_path) {
                     return Err(anyhow!("Failed to create backup: {}", e));
                 }
-                
+
                 return Ok(Some(backup_path.display().to_string()));
             }
         }
@@ -180,12 +183,13 @@ impl AgentExecutor {
     /// Generate a unique backup file path
     fn generate_backup_path(&self, original_path: &std::path::Path) -> Result<std::path::PathBuf> {
         let timestamp = chrono::Utc::now().format("%Y%m%d_%H%M%S");
-        let file_name = original_path.file_name()
+        let file_name = original_path
+            .file_name()
             .and_then(|n| n.to_str())
             .ok_or_else(|| anyhow!("Invalid file name"))?;
-        
+
         let backup_name = format!("{file_name}.backup_{timestamp}");
-        
+
         let backup_path = if let Some(parent) = original_path.parent() {
             parent.join(backup_name)
         } else {
@@ -197,7 +201,9 @@ impl AgentExecutor {
 
     /// Validate tool call parameters against tool schema
     pub fn validate_tool_call(&self, tool_call: &ToolCall) -> Result<()> {
-        let tool = self.tools.get(&tool_call.tool)
+        let tool = self
+            .tools
+            .get(&tool_call.tool)
             .ok_or_else(|| anyhow!("Unknown tool: {}", tool_call.tool))?;
 
         // Basic validation - check required parameters
@@ -241,7 +247,9 @@ impl AgentExecutor {
                 serde_json::Value::Null => "null",
             };
 
-            if expected_type != actual_type && !(expected_type == "integer" && actual_type == "number") {
+            if expected_type != actual_type
+                && !(expected_type == "integer" && actual_type == "number")
+            {
                 return Err(anyhow!(
                     "Parameter '{}' has type '{}' but expected '{}'",
                     param_name,
@@ -267,24 +275,32 @@ impl ToolInfo {
     /// Get a human-readable description of the tool
     pub fn format_description(&self) -> String {
         let mut desc = format!("**{}**: {}", self.name, self.description);
-        
-        if let Some(properties) = self.parameters.get("properties").and_then(|p| p.as_object()) {
+
+        if let Some(properties) = self
+            .parameters
+            .get("properties")
+            .and_then(|p| p.as_object())
+        {
             desc.push_str("\n\nParameters:");
-            
-            let required_params = self.parameters.get("required")
+
+            let required_params = self
+                .parameters
+                .get("required")
                 .and_then(|r| r.as_array())
                 .map(|arr| arr.iter().filter_map(|v| v.as_str()).collect::<Vec<_>>())
                 .unwrap_or_default();
-            
+
             for (param_name, param_info) in properties {
                 let is_required = required_params.contains(&param_name.as_str());
-                let param_type = param_info.get("type")
+                let param_type = param_info
+                    .get("type")
                     .and_then(|t| t.as_str())
                     .unwrap_or("unknown");
-                let param_desc = param_info.get("description")
+                let param_desc = param_info
+                    .get("description")
                     .and_then(|d| d.as_str())
                     .unwrap_or("No description");
-                
+
                 desc.push_str(&format!(
                     "\n  - {} ({}){}: {}",
                     param_name,
@@ -294,7 +310,7 @@ impl ToolInfo {
                 ));
             }
         }
-        
+
         desc
     }
 }

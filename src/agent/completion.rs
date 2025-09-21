@@ -1,5 +1,5 @@
 //! Task completion detection for autonomous agent operations
-//! 
+//!
 //! Analyzes conversation patterns and tool usage to determine when tasks are complete.
 
 use super::ToolCall;
@@ -23,31 +23,6 @@ impl CompletionDetector {
         }
     }
 
-    /// Check if the current task appears to be complete
-    pub fn is_complete(&self, recent_messages: &[String], tool_history: &[ToolCall]) -> bool {
-        // Check for explicit completion signals in messages
-        if self.has_completion_signals(recent_messages) {
-            return true;
-        }
-
-        // Check for task completion patterns
-        if self.matches_completion_patterns(recent_messages, tool_history) {
-            return true;
-        }
-
-        // Check for tool execution inactivity
-        if self.has_tool_inactivity() {
-            return true;
-        }
-
-        // Check for successful task execution patterns
-        if self.has_successful_execution_pattern(tool_history) {
-            return true;
-        }
-
-        false
-    }
-
     /// Check for explicit completion signals in recent messages
     fn has_completion_signals(&self, messages: &[String]) -> bool {
         let completion_phrases = [
@@ -68,7 +43,8 @@ impl CompletionDetector {
             "task has been completed",
         ];
 
-        for message in messages.iter().rev().take(3) { // Check last 3 messages
+        for message in messages.iter().rev().take(3) {
+            // Check last 3 messages
             let message_lower = message.to_lowercase();
             for phrase in &completion_phrases {
                 if message_lower.contains(phrase) {
@@ -89,6 +65,15 @@ impl CompletionDetector {
         }
 
         false
+    }
+
+    /// Get the human-readable descriptions of patterns that currently match
+    pub fn matching_patterns(&self, messages: &[String], tool_history: &[ToolCall]) -> Vec<String> {
+        self.completion_patterns
+            .iter()
+            .filter(|pattern| pattern.matches(messages, tool_history))
+            .map(|pattern| format!("{}: {}", pattern.name, pattern.description))
+            .collect()
     }
 
     /// Check for tool execution inactivity
@@ -116,9 +101,13 @@ impl CompletionDetector {
 
         // Pattern: Read -> Process -> Write (common completion pattern)
         if recent_tools.len() >= 3 {
-            let has_read = recent_tools.iter().any(|&tool| tool == "read_file" || tool == "search_files");
-            let has_write = recent_tools.iter().any(|&tool| tool == "write_file" || tool == "update_file");
-            
+            let has_read = recent_tools
+                .iter()
+                .any(|&tool| tool == "read_file" || tool == "search_files");
+            let has_write = recent_tools
+                .iter()
+                .any(|&tool| tool == "write_file" || tool == "update_file");
+
             if has_read && has_write {
                 return true;
             }
@@ -126,10 +115,11 @@ impl CompletionDetector {
 
         // Pattern: Multiple successful file operations
         if recent_tools.len() >= 2 {
-            let file_ops = recent_tools.iter()
+            let file_ops = recent_tools
+                .iter()
                 .filter(|&&tool| matches!(tool, "write_file" | "update_file" | "read_file"))
                 .count();
-            
+
             if file_ops >= 2 {
                 return true;
             }
@@ -141,16 +131,6 @@ impl CompletionDetector {
     /// Update the last tool execution time
     pub fn record_tool_execution(&mut self) {
         self.last_tool_execution = Some(Instant::now());
-    }
-
-    /// Set custom inactivity threshold
-    pub fn set_inactivity_threshold(&mut self, threshold: Duration) {
-        self.inactivity_threshold = threshold;
-    }
-
-    /// Add a custom completion pattern
-    pub fn add_pattern(&mut self, pattern: CompletionPattern) {
-        self.completion_patterns.push(pattern);
     }
 
     /// Get default completion patterns
@@ -166,10 +146,13 @@ impl CompletionDetector {
                     "analysis complete".to_string(),
                     "findings".to_string(),
                 ],
-                tool_sequence: vec!["search_files".to_string(), "read_file".to_string(), "write_file".to_string()],
+                tool_sequence: vec![
+                    "search_files".to_string(),
+                    "read_file".to_string(),
+                    "write_file".to_string(),
+                ],
                 min_tools: 2,
             },
-            
             // File organization pattern
             CompletionPattern {
                 name: "file_organization".to_string(),
@@ -180,10 +163,13 @@ impl CompletionDetector {
                     "cleaned up".to_string(),
                     "files arranged".to_string(),
                 ],
-                tool_sequence: vec!["list_directory".to_string(), "read_file".to_string(), "write_file".to_string()],
+                tool_sequence: vec![
+                    "list_directory".to_string(),
+                    "read_file".to_string(),
+                    "write_file".to_string(),
+                ],
                 min_tools: 3,
             },
-            
             // Documentation pattern
             CompletionPattern {
                 name: "documentation".to_string(),
@@ -197,7 +183,6 @@ impl CompletionDetector {
                 tool_sequence: vec!["read_file".to_string(), "write_file".to_string()],
                 min_tools: 2,
             },
-            
             // Code analysis pattern
             CompletionPattern {
                 name: "code_analysis".to_string(),
@@ -249,9 +234,13 @@ impl CompletionDetector {
     }
 
     /// Get a human-readable completion status
-    pub fn completion_status(&self, messages: &[String], tool_history: &[ToolCall]) -> CompletionStatus {
+    pub fn completion_status(
+        &self,
+        messages: &[String],
+        tool_history: &[ToolCall],
+    ) -> CompletionStatus {
         let confidence = self.completion_confidence(messages, tool_history);
-        
+
         if confidence >= 0.8 {
             CompletionStatus::Complete
         } else if confidence >= 0.5 {
@@ -283,7 +272,9 @@ impl CompletionPattern {
         } else {
             messages.iter().rev().take(3).any(|message| {
                 let message_lower = message.to_lowercase();
-                self.message_patterns.iter().any(|pattern| message_lower.contains(pattern))
+                self.message_patterns
+                    .iter()
+                    .any(|pattern| message_lower.contains(pattern))
             })
         };
 
@@ -300,7 +291,9 @@ impl CompletionPattern {
 
             // Check if all required tools were used
             self.tool_sequence.iter().all(|required_tool| {
-                recent_tools.iter().any(|&used_tool| used_tool == required_tool)
+                recent_tools
+                    .iter()
+                    .any(|&used_tool| used_tool == required_tool)
             })
         };
 
@@ -333,7 +326,10 @@ impl CompletionStatus {
 
     /// Check if the status indicates completion
     pub fn is_complete(&self) -> bool {
-        matches!(self, CompletionStatus::Complete | CompletionStatus::LikelyComplete)
+        matches!(
+            self,
+            CompletionStatus::Complete | CompletionStatus::LikelyComplete
+        )
     }
 }
 
@@ -349,7 +345,7 @@ mod tests {
             "I'm working on the task".to_string(),
             "Task completed successfully!".to_string(),
         ];
-        
+
         assert!(detector.has_completion_signals(&messages));
     }
 
@@ -370,7 +366,7 @@ mod tests {
                 reasoning: None,
             },
         ];
-        
+
         assert!(detector.has_successful_execution_pattern(&tool_history));
     }
 
@@ -392,7 +388,7 @@ mod tests {
                 reasoning: None,
             },
         ];
-        
+
         let confidence = detector.completion_confidence(&messages, &tool_history);
         assert!(confidence > 0.8);
     }
