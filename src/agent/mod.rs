@@ -1,22 +1,22 @@
 //! Agent module for autonomous task execution
-//! 
+//!
 //! Provides tools for file operations, search, and autonomous task completion
 //! within a safe, sandboxed environment.
 
 use anyhow::{anyhow, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
-pub mod tools;
-pub mod executor;
 pub mod completion;
+pub mod executor;
 pub mod safety;
+pub mod tools;
 
+pub use completion::{CompletionDetector, CompletionStatus};
 pub use executor::AgentExecutor;
-pub use tools::{ToolCall, ToolResult};
-pub use completion::CompletionDetector;
 pub use safety::SafetyManager;
+pub use tools::{ToolCall, ToolResult};
 
 /// Agent configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -151,7 +151,25 @@ impl Agent {
             return false;
         }
 
-        self.completion_detector.is_complete(recent_messages, &self.tool_history)
+        self.completion_status(recent_messages).is_complete()
+    }
+
+    /// Get the current completion status classification
+    pub fn completion_status(&self, recent_messages: &[String]) -> CompletionStatus {
+        self.completion_detector
+            .completion_status(recent_messages, &self.tool_history)
+    }
+
+    /// Get the confidence score associated with the completion status
+    pub fn completion_confidence(&self, recent_messages: &[String]) -> f64 {
+        self.completion_detector
+            .completion_confidence(recent_messages, &self.tool_history)
+    }
+
+    /// Describe which completion patterns currently match
+    pub fn completion_pattern_matches(&self, recent_messages: &[String]) -> Vec<String> {
+        self.completion_detector
+            .matching_patterns(recent_messages, &self.tool_history)
     }
 
     /// Get tool execution history
@@ -167,6 +185,43 @@ impl Agent {
     /// Get available tools
     pub fn available_tools(&self) -> Vec<String> {
         self.executor.available_tools()
+    }
+
+    /// Get detailed descriptions for available tools
+    pub fn tool_catalog(&self) -> Vec<String> {
+        self.available_tools()
+            .into_iter()
+            .filter_map(|name| {
+                self.executor
+                    .get_tool_info(&name)
+                    .map(|info| info.format_description())
+            })
+            .collect()
+    }
+
+    /// Add an allowed path to the safety manager at runtime
+    pub fn add_allowed_path(&mut self, path: PathBuf) {
+        self.safety_manager.add_allowed_path(path);
+    }
+
+    /// Add a forbidden path to the safety manager at runtime
+    pub fn add_forbidden_path(&mut self, path: PathBuf) {
+        self.safety_manager.add_forbidden_path(path);
+    }
+
+    /// Get the configured allowed paths
+    pub fn allowed_paths(&self) -> Vec<PathBuf> {
+        self.safety_manager.allowed_paths().to_vec()
+    }
+
+    /// Get the configured forbidden paths
+    pub fn forbidden_paths(&self) -> Vec<PathBuf> {
+        self.safety_manager.forbidden_paths().to_vec()
+    }
+
+    /// Check if a path would be permitted by the safety manager
+    pub fn is_path_allowed<P: AsRef<Path>>(&self, path: P) -> bool {
+        self.safety_manager.would_allow_path(path.as_ref())
     }
 
     /// Get agent status summary
@@ -216,7 +271,9 @@ impl Agent {
         let message_lower = message.to_lowercase();
 
         // Simple pattern matching for common requests
-        if message_lower.contains("read") && (message_lower.contains("file") || message_lower.contains("content")) {
+        if message_lower.contains("read")
+            && (message_lower.contains("file") || message_lower.contains("content"))
+        {
             if let Some(path) = self.extract_file_path(&message_lower) {
                 tool_calls.push(ToolCall {
                     tool: "read_file".to_string(),
@@ -238,7 +295,10 @@ impl Agent {
                     parameters: {
                         let mut params = HashMap::new();
                         params.insert("pattern".to_string(), serde_json::Value::String(pattern));
-                        params.insert("directory".to_string(), serde_json::Value::String(".".to_string()));
+                        params.insert(
+                            "directory".to_string(),
+                            serde_json::Value::String(".".to_string()),
+                        );
                         params
                     },
                     thought: Some("Searching for files as requested".to_string()),
@@ -247,8 +307,12 @@ impl Agent {
             }
         }
 
-        if message_lower.contains("list") && (message_lower.contains("files") || message_lower.contains("directory")) {
-            let directory = self.extract_directory_path(&message_lower).unwrap_or_else(|| ".".to_string());
+        if message_lower.contains("list")
+            && (message_lower.contains("files") || message_lower.contains("directory"))
+        {
+            let directory = self
+                .extract_directory_path(&message_lower)
+                .unwrap_or_else(|| ".".to_string());
             tool_calls.push(ToolCall {
                 tool: "list_directory".to_string(),
                 parameters: {
@@ -274,8 +338,13 @@ impl Agent {
             }
             // Look for quoted paths
             if word.starts_with('"') || word.starts_with('\'') {
-                if let Some(end_idx) = words.iter().skip(i).position(|w| w.ends_with('"') || w.ends_with('\'')) {
-                    let path_parts: Vec<&str> = words.iter().skip(i).take(end_idx + 1).cloned().collect();
+                if let Some(end_idx) = words
+                    .iter()
+                    .skip(i)
+                    .position(|w| w.ends_with('"') || w.ends_with('\''))
+                {
+                    let path_parts: Vec<&str> =
+                        words.iter().skip(i).take(end_idx + 1).cloned().collect();
                     let path = path_parts.join(" ");
                     return Some(path.trim_matches(|c| c == '"' || c == '\'').to_string());
                 }
@@ -297,7 +366,7 @@ impl Agent {
                 return Some(message[start + 1..start + 1 + end].to_string());
             }
         }
-        
+
         // Look for "for X" patterns
         if let Some(for_pos) = message.find(" for ") {
             let after_for = &message[for_pos + 5..];
