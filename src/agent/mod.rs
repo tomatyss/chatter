@@ -38,6 +38,7 @@ pub struct AgentConfig {
 
 impl Default for AgentConfig {
     fn default() -> Self {
+        let working_directory = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
         Self {
             enabled: false,
             allowed_extensions: vec![
@@ -58,7 +59,7 @@ impl Default for AgentConfig {
                 "log".to_string(),
             ],
             max_file_size: 10 * 1024 * 1024, // 10MB
-            working_directory: PathBuf::from("."),
+            working_directory,
             auto_backup: true,
             dry_run_mode: false,
         }
@@ -77,7 +78,9 @@ pub struct Agent {
 
 impl Agent {
     /// Create a new agent with the given configuration
-    pub fn new(config: AgentConfig) -> Result<Self> {
+    pub fn new(mut config: AgentConfig) -> Result<Self> {
+        config.working_directory = normalize_working_directory(&config.working_directory)?;
+
         let safety_manager = SafetyManager::new(&config)?;
         let executor = AgentExecutor::new(config.clone(), safety_manager.clone())?;
         let completion_detector = CompletionDetector::new();
@@ -107,7 +110,8 @@ impl Agent {
     }
 
     /// Update configuration
-    pub fn update_config(&mut self, config: AgentConfig) -> Result<()> {
+    pub fn update_config(&mut self, mut config: AgentConfig) -> Result<()> {
+        config.working_directory = normalize_working_directory(&config.working_directory)?;
         self.safety_manager = SafetyManager::new(&config)?;
         self.executor = AgentExecutor::new(config.clone(), self.safety_manager.clone())?;
         self.config = config;
@@ -404,4 +408,29 @@ pub struct AgentStatus {
     pub working_directory: PathBuf,
     pub dry_run_mode: bool,
     pub available_tools: Vec<String>,
+}
+
+fn normalize_working_directory(path: &Path) -> Result<PathBuf> {
+    if path.is_absolute() {
+        Ok(path.to_path_buf())
+    } else {
+        Ok(std::env::current_dir()?.join(path))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn normalize_working_directory_converts_relative_path() {
+        let normalized = normalize_working_directory(Path::new(".")).unwrap();
+        assert!(normalized.is_absolute());
+    }
+
+    #[test]
+    fn normalize_working_directory_preserves_absolute_path() {
+        let normalized = normalize_working_directory(Path::new("/tmp")).unwrap();
+        assert_eq!(normalized, PathBuf::from("/tmp"));
+    }
 }
