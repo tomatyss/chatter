@@ -1,15 +1,15 @@
 //! Tool definitions and implementations for agent operations
-//! 
+//!
 //! Provides safe file operations, search capabilities, and other utilities
 //! for autonomous task execution.
 
 use anyhow::{anyhow, Result};
+use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use walkdir::WalkDir;
-use regex::Regex;
 
 /// A tool call request
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -122,7 +122,10 @@ impl Tool {
     }
 
     /// Execute the tool with the given parameters
-    pub async fn execute(&self, parameters: HashMap<String, serde_json::Value>) -> Result<ToolResult> {
+    pub async fn execute(
+        &self,
+        parameters: HashMap<String, serde_json::Value>,
+    ) -> Result<ToolResult> {
         match self {
             Tool::ReadFile(tool) => tool.execute(parameters).await,
             Tool::WriteFile(tool) => tool.execute(parameters).await,
@@ -182,13 +185,19 @@ impl ToolImpl for ReadFileTool {
             .ok_or_else(|| anyhow!("Missing or invalid 'path' parameter"))?;
 
         let path = Path::new(path);
-        
+
         if !path.exists() {
-            return Ok(ToolResult::error(format!("File does not exist: {}", path.display())));
+            return Ok(ToolResult::error(format!(
+                "File does not exist: {}",
+                path.display()
+            )));
         }
 
         if !path.is_file() {
-            return Ok(ToolResult::error(format!("Path is not a file: {}", path.display())));
+            return Ok(ToolResult::error(format!(
+                "Path is not a file: {}",
+                path.display()
+            )));
         }
 
         match fs::read_to_string(path) {
@@ -200,7 +209,11 @@ impl ToolImpl for ReadFileTool {
                 });
                 Ok(ToolResult::success(
                     result,
-                    Some(format!("Successfully read {} bytes from {}", content.len(), path.display())),
+                    Some(format!(
+                        "Successfully read {} bytes from {}",
+                        content.len(),
+                        path.display()
+                    )),
                 ))
             }
             Err(e) => Ok(ToolResult::error(format!("Failed to read file: {e}"))),
@@ -255,7 +268,9 @@ impl ToolImpl for WriteFileTool {
         if let Some(parent) = path.parent() {
             if !parent.exists() {
                 if let Err(e) = fs::create_dir_all(parent) {
-                    return Ok(ToolResult::error(format!("Failed to create directories: {e}")));
+                    return Ok(ToolResult::error(format!(
+                        "Failed to create directories: {e}"
+                    )));
                 }
             }
         }
@@ -268,7 +283,11 @@ impl ToolImpl for WriteFileTool {
                 });
                 Ok(ToolResult::success_with_files(
                     result,
-                    Some(format!("Successfully wrote {} bytes to {}", content.len(), path.display())),
+                    Some(format!(
+                        "Successfully wrote {} bytes to {}",
+                        content.len(),
+                        path.display()
+                    )),
                     vec![path.to_path_buf()],
                 ))
             }
@@ -334,7 +353,10 @@ impl ToolImpl for UpdateFileTool {
         let path = Path::new(path);
 
         if !path.exists() {
-            return Ok(ToolResult::error(format!("File does not exist: {}", path.display())));
+            return Ok(ToolResult::error(format!(
+                "File does not exist: {}",
+                path.display()
+            )));
         }
 
         let original_content = match fs::read_to_string(path) {
@@ -360,7 +382,9 @@ impl ToolImpl for UpdateFileTool {
                 let content_to_add = parameters
                     .get("replacement")
                     .and_then(|v| v.as_str())
-                    .ok_or_else(|| anyhow!("Missing 'replacement' parameter for append operation"))?;
+                    .ok_or_else(|| {
+                        anyhow!("Missing 'replacement' parameter for append operation")
+                    })?;
 
                 format!("{original_content}\n{content_to_add}")
             }
@@ -368,7 +392,9 @@ impl ToolImpl for UpdateFileTool {
                 let content_to_add = parameters
                     .get("replacement")
                     .and_then(|v| v.as_str())
-                    .ok_or_else(|| anyhow!("Missing 'replacement' parameter for prepend operation"))?;
+                    .ok_or_else(|| {
+                        anyhow!("Missing 'replacement' parameter for prepend operation")
+                    })?;
 
                 format!("{content_to_add}\n{original_content}")
             }
@@ -381,16 +407,20 @@ impl ToolImpl for UpdateFileTool {
                 let content_to_add = parameters
                     .get("replacement")
                     .and_then(|v| v.as_str())
-                    .ok_or_else(|| anyhow!("Missing 'replacement' parameter for insert_at_line operation"))?;
+                    .ok_or_else(|| {
+                        anyhow!("Missing 'replacement' parameter for insert_at_line operation")
+                    })?;
 
                 let mut lines: Vec<&str> = original_content.lines().collect();
                 let insert_index = (line_number as usize).saturating_sub(1);
-                
+
                 if insert_index <= lines.len() {
                     lines.insert(insert_index, content_to_add);
                     lines.join("\n")
                 } else {
-                    return Ok(ToolResult::error(format!("Line number {line_number} is out of range")));
+                    return Ok(ToolResult::error(format!(
+                        "Line number {line_number} is out of range"
+                    )));
                 }
             }
             _ => return Ok(ToolResult::error(format!("Unknown operation: {operation}"))),
@@ -406,7 +436,11 @@ impl ToolImpl for UpdateFileTool {
                 });
                 Ok(ToolResult::success_with_files(
                     result,
-                    Some(format!("Successfully updated {} using {} operation", path.display(), operation)),
+                    Some(format!(
+                        "Successfully updated {} using {} operation",
+                        path.display(),
+                        operation
+                    )),
                     vec![path.to_path_buf()],
                 ))
             }
@@ -468,9 +502,7 @@ impl ToolImpl for SearchFilesTool {
             .and_then(|v| v.as_str())
             .unwrap_or(".");
 
-        let file_pattern = parameters
-            .get("file_pattern")
-            .and_then(|v| v.as_str());
+        let file_pattern = parameters.get("file_pattern").and_then(|v| v.as_str());
 
         let case_sensitive = parameters
             .get("case_sensitive")
@@ -515,10 +547,11 @@ impl ToolImpl for SearchFilesTool {
             }
 
             let path = entry.path();
-            
+
             // Apply file pattern filter if specified
             if let Some(file_pat) = file_pattern {
-                if !path.file_name()
+                if !path
+                    .file_name()
                     .and_then(|n| n.to_str())
                     .map(|n| glob_match(file_pat, n))
                     .unwrap_or(false)
@@ -572,7 +605,11 @@ impl ToolImpl for SearchFilesTool {
 
         Ok(ToolResult::success(
             result,
-            Some(format!("Found {} matches in {} files", results.len(), files_searched)),
+            Some(format!(
+                "Found {} matches in {} files",
+                results.len(),
+                files_searched
+            )),
         ))
     }
 }
@@ -629,11 +666,17 @@ impl ToolImpl for ListDirectoryTool {
         let path = Path::new(path);
 
         if !path.exists() {
-            return Ok(ToolResult::error(format!("Path does not exist: {}", path.display())));
+            return Ok(ToolResult::error(format!(
+                "Path does not exist: {}",
+                path.display()
+            )));
         }
 
         if !path.is_dir() {
-            return Ok(ToolResult::error(format!("Path is not a directory: {}", path.display())));
+            return Ok(ToolResult::error(format!(
+                "Path is not a directory: {}",
+                path.display()
+            )));
         }
 
         let mut entries = Vec::new();
@@ -641,7 +684,8 @@ impl ToolImpl for ListDirectoryTool {
         if recursive {
             for entry in WalkDir::new(path).into_iter().filter_map(|e| e.ok()) {
                 let entry_path = entry.path();
-                let file_name = entry_path.file_name()
+                let file_name = entry_path
+                    .file_name()
                     .and_then(|n| n.to_str())
                     .unwrap_or("");
 
@@ -666,7 +710,8 @@ impl ToolImpl for ListDirectoryTool {
                 Ok(dir_entries) => {
                     for entry in dir_entries.filter_map(|e| e.ok()) {
                         let entry_path = entry.path();
-                        let file_name = entry_path.file_name()
+                        let file_name = entry_path
+                            .file_name()
                             .and_then(|n| n.to_str())
                             .unwrap_or("");
 
@@ -700,7 +745,11 @@ impl ToolImpl for ListDirectoryTool {
 
         Ok(ToolResult::success(
             result,
-            Some(format!("Listed {} entries in {}", entries.len(), path.display())),
+            Some(format!(
+                "Listed {} entries in {}",
+                entries.len(),
+                path.display()
+            )),
         ))
     }
 }
@@ -740,7 +789,10 @@ impl ToolImpl for FileInfoTool {
         let path = Path::new(path);
 
         if !path.exists() {
-            return Ok(ToolResult::error(format!("Path does not exist: {}", path.display())));
+            return Ok(ToolResult::error(format!(
+                "Path does not exist: {}",
+                path.display()
+            )));
         }
 
         let metadata = match path.metadata() {
@@ -778,15 +830,15 @@ impl ToolImpl for FileInfoTool {
             if let Some(extension) = path.extension().and_then(|e| e.to_str()) {
                 result["extension"] = serde_json::Value::String(extension.to_string());
             }
-            
+
             result["is_text"] = serde_json::Value::Bool(is_text_file(path));
-            
+
             // For text files, add line count
             if is_text_file(path) {
                 if let Ok(content) = fs::read_to_string(path) {
-                    result["line_count"] = serde_json::Value::Number(
-                        serde_json::Number::from(content.lines().count())
-                    );
+                    result["line_count"] = serde_json::Value::Number(serde_json::Number::from(
+                        content.lines().count(),
+                    ));
                 }
             }
         }
@@ -801,10 +853,45 @@ impl ToolImpl for FileInfoTool {
 /// Check if a file is likely a text file based on extension
 fn is_text_file(path: &Path) -> bool {
     let text_extensions = [
-        "txt", "md", "rs", "toml", "json", "yaml", "yml", "js", "ts", "py", 
-        "html", "css", "xml", "csv", "log", "cfg", "conf", "ini", "sh", 
-        "bash", "zsh", "fish", "ps1", "bat", "cmd", "c", "cpp", "h", "hpp",
-        "java", "kt", "swift", "go", "rb", "php", "pl", "r", "sql", "dockerfile"
+        "txt",
+        "md",
+        "rs",
+        "toml",
+        "json",
+        "yaml",
+        "yml",
+        "js",
+        "ts",
+        "py",
+        "html",
+        "css",
+        "xml",
+        "csv",
+        "log",
+        "cfg",
+        "conf",
+        "ini",
+        "sh",
+        "bash",
+        "zsh",
+        "fish",
+        "ps1",
+        "bat",
+        "cmd",
+        "c",
+        "cpp",
+        "h",
+        "hpp",
+        "java",
+        "kt",
+        "swift",
+        "go",
+        "rb",
+        "php",
+        "pl",
+        "r",
+        "sql",
+        "dockerfile",
     ];
 
     path.extension()
@@ -820,7 +907,7 @@ fn glob_match(pattern: &str, text: &str) -> bool {
         .replace(".", r"\.")
         .replace("*", ".*")
         .replace("?", ".");
-    
+
     if let Ok(regex) = Regex::new(&format!("^{regex_pattern}$")) {
         regex.is_match(text)
     } else {

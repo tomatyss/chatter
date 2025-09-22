@@ -2,15 +2,18 @@
 //!
 //! Handles interactive chat sessions, conversation history, and terminal UI.
 
-use crate::agent::Agent;
-use crate::api::{Content, GeminiClient};
-use anyhow::{anyhow, Result};
+use crate::agent::{Agent, ToolCall, ToolResult};
+use crate::api::{Content, LlmClient, ModelToolCall, Part};
+use crate::config::ModelProvider;
+use anyhow::{anyhow, Context, Result};
 use chrono::{DateTime, Utc};
 use colored::*;
 use indicatif::{ProgressBar, ProgressStyle};
 use rustyline::error::ReadlineError;
 use rustyline::DefaultEditor;
 use serde::{Deserialize, Serialize};
+use serde_json::{self, Value};
+use std::collections::HashMap;
 use std::fs;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
@@ -22,6 +25,7 @@ pub mod display;
 pub mod history;
 pub mod session;
 
+use agent_commands::format_tool_result;
 /// A chat session with conversation history
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChatSession {
@@ -29,6 +33,9 @@ pub struct ChatSession {
     pub id: String,
     /// Model being used
     pub model: String,
+    /// Model provider
+    #[serde(default = "default_session_provider")]
+    pub provider: ModelProvider,
     /// System instruction
     pub system_instruction: Option<String>,
     /// Conversation history
@@ -39,13 +46,32 @@ pub struct ChatSession {
     pub updated_at: DateTime<Utc>,
 }
 
+fn default_session_provider() -> ModelProvider {
+    ModelProvider::Gemini
+}
+
+#[derive(Debug, Clone)]
+struct ToolExecutionRecord {
+    tool_name: String,
+    result: ToolResult,
+}
+
+#[derive(Debug, Clone)]
+struct InteractionResult {
+    response_text: String,
+    tool_executions: Vec<ToolExecutionRecord>,
+}
+
+const MAX_TOOL_ITERATIONS: usize = 6;
+
 impl ChatSession {
     /// Create a new chat session
-    pub fn new(model: String, system_instruction: Option<String>) -> Self {
+    pub fn new(model: String, provider: ModelProvider, system_instruction: Option<String>) -> Self {
         let now = Utc::now();
         Self {
             id: Uuid::new_v4().to_string(),
             model,
+            provider,
             system_instruction,
             history: Vec::new(),
             created_at: now,
@@ -73,53 +99,127 @@ impl ChatSession {
         self.updated_at = Utc::now();
     }
 
-    /// Send a message and get response
-    pub async fn send_message(&mut self, client: &GeminiClient, message: &str) -> Result<String> {
-        // Add user message to history
-        self.add_message(Content::user(message.to_string()));
-
-        // Send to API
-        let response = client
-            .send_message(
-                &self.model,
-                message,
-                &self.history[..self.history.len() - 1], // Don't include the message we just added
-                self.system_instruction.as_deref(),
-            )
-            .await?;
-
-        // Add model response to history
-        self.add_message(Content::model(response.clone()));
-
-        Ok(response)
-    }
-
-    /// Send a message with streaming response
-    pub async fn send_message_stream(
+    async fn run_model_interaction(
         &mut self,
-        client: &GeminiClient,
-        message: &str,
-    ) -> Result<impl tokio_stream::Stream<Item = Result<String>>> {
-        // Add user message to history
-        self.add_message(Content::user(message.to_string()));
+        client: &LlmClient,
+        mut agent: Option<&mut Agent>,
+    ) -> Result<InteractionResult> {
+        let mut tool_executions = Vec::new();
+        let mut iterations = 0;
 
-        // Get streaming response
-        let stream = client
-            .send_message_stream(
-                &self.model,
-                message,
-                &self.history[..self.history.len() - 1], // Don't include the message we just added
-                self.system_instruction.as_deref(),
-            )
-            .await?;
+        loop {
+            iterations += 1;
+            if iterations > MAX_TOOL_ITERATIONS {
+                return Err(anyhow!(
+                    "Exceeded maximum tool interaction depth ({} iterations)",
+                    MAX_TOOL_ITERATIONS
+                ));
+            }
 
-        Ok(stream)
+            let tool_definitions = if matches!(self.provider, ModelProvider::Ollama) {
+                if let Some(agent_ref) = agent.as_mut() {
+                    if agent_ref.is_enabled() {
+                        agent_ref.tool_definitions()
+                    } else {
+                        Vec::new()
+                    }
+                } else {
+                    Vec::new()
+                }
+            } else {
+                Vec::new()
+            };
+
+            let chat_response = client
+                .generate(
+                    &self.model,
+                    &self.history,
+                    self.system_instruction.as_deref(),
+                    &tool_definitions,
+                )
+                .await?;
+
+            let mut assistant_message = chat_response.message;
+
+            if assistant_message.parts.is_empty() {
+                assistant_message.parts.push(Part {
+                    text: String::new(),
+                });
+            }
+
+            let response_text = assistant_message
+                .parts
+                .first()
+                .map(|p| p.text.clone())
+                .unwrap_or_default();
+
+            let tool_calls = assistant_message.tool_calls.clone();
+
+            self.add_message(assistant_message);
+
+            if tool_calls.is_empty() {
+                return Ok(InteractionResult {
+                    response_text,
+                    tool_executions,
+                });
+            }
+
+            if !matches!(self.provider, ModelProvider::Ollama) {
+                return Err(anyhow!(
+                    "Received tool call from unsupported provider: {:?}",
+                    self.provider
+                ));
+            }
+
+            let agent_ref = agent
+                .as_mut()
+                .ok_or_else(|| anyhow!("Model requested tools but agent mode is not available"))?;
+
+            if !agent_ref.is_enabled() {
+                return Err(anyhow!(
+                    "Model requested tools but agent mode is currently disabled"
+                ));
+            }
+
+            for call in tool_calls {
+                let tool_call = convert_model_tool_call(&call)?;
+                let tool_name = tool_call.tool.clone();
+                let call_id = call.id.clone();
+
+                let execution_result = match agent_ref.execute_tool(tool_call.clone()).await {
+                    Ok(result) => result,
+                    Err(e) => ToolResult::error(format!("Tool execution error: {e}")),
+                };
+
+                let payload_json = build_tool_result_payload(&tool_name, &execution_result);
+                let payload_string = serde_json::to_string(&payload_json)
+                    .context("Failed to encode tool result payload")?;
+
+                let tool_message = Content {
+                    role: "tool".to_string(),
+                    parts: vec![Part {
+                        text: payload_string.clone(),
+                    }],
+                    name: Some(tool_name.clone()),
+                    tool_call_id: call_id.clone(),
+                    tool_calls: Vec::new(),
+                };
+                self.add_message(tool_message);
+
+                tool_executions.push(ToolExecutionRecord {
+                    tool_name,
+                    result: execution_result,
+                });
+            }
+
+            // Loop to let the model incorporate tool outputs
+        }
     }
 
     /// Start interactive chat mode
     pub async fn start_interactive_chat(
         &mut self,
-        client: &GeminiClient,
+        client: &LlmClient,
         auto_save: bool,
         sessions_dir: Option<PathBuf>,
     ) -> Result<()> {
@@ -130,7 +230,7 @@ impl ChatSession {
     /// Start interactive chat mode with optional agent support
     pub async fn start_interactive_chat_with_agent(
         &mut self,
-        client: &GeminiClient,
+        client: &LlmClient,
         auto_save: bool,
         sessions_dir: Option<PathBuf>,
         mut agent: Option<Agent>,
@@ -187,7 +287,7 @@ impl ChatSession {
                 }
 
                 // Handle regular commands
-                if let Err(e) = self.handle_command(input, client).await {
+                if let Err(e) = self.handle_command(input).await {
                     println!("❌ Command error: {e}");
                 }
                 continue;
@@ -204,8 +304,6 @@ impl ChatSession {
                 self.add_message(Content::user(enhanced_message.clone()));
 
                 // Continue with AI response using the enhanced message
-                let ai_input = &enhanced_message;
-
                 // Show thinking indicator
                 let spinner = ProgressBar::new_spinner();
                 spinner.set_style(
@@ -214,11 +312,14 @@ impl ChatSession {
                         .unwrap()
                         .tick_strings(&["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]),
                 );
-                spinner.set_message("Gemini is thinking...");
+                spinner.set_message(format!("{} is thinking...", self.model_label()));
                 spinner.enable_steady_tick(std::time::Duration::from_millis(100));
 
                 // Send enhanced message to AI
-                match self.send_ai_response(client, ai_input, &spinner).await {
+                match self
+                    .send_ai_response(client, &spinner, agent.as_mut())
+                    .await
+                {
                     Ok(response) => {
                         recent_messages.push(response);
                     }
@@ -240,11 +341,14 @@ impl ChatSession {
                         .unwrap()
                         .tick_strings(&["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]),
                 );
-                spinner.set_message("Gemini is thinking...");
+                spinner.set_message(format!("{} is thinking...", self.model_label()));
                 spinner.enable_steady_tick(std::time::Duration::from_millis(100));
 
                 // Send regular message to AI
-                match self.send_ai_response(client, input, &spinner).await {
+                match self
+                    .send_ai_response(client, &spinner, agent.as_mut())
+                    .await
+                {
                     Ok(response) => {
                         recent_messages.push(response);
                     }
@@ -302,10 +406,16 @@ impl ChatSession {
 
     /// Display welcome message
     fn display_welcome(&self) {
-        println!("{}", "🤖 Chatter - Gemini AI Chat".bright_cyan().bold());
         println!(
-            "Model: {} | Session: {}",
+            "{}",
+            format!("🤖 Chatter - {} AI Chat", self.model_label())
+                .bright_cyan()
+                .bold()
+        );
+        println!(
+            "Model: {} | Provider: {} | Session: {}",
             self.model.bright_yellow(),
+            self.model_label().bright_cyan(),
             self.id[..8].bright_magenta()
         );
 
@@ -343,7 +453,7 @@ impl ChatSession {
     }
 
     /// Handle special commands
-    async fn handle_command(&mut self, command: &str, _client: &GeminiClient) -> Result<()> {
+    async fn handle_command(&mut self, command: &str) -> Result<()> {
         let parts: Vec<&str> = command.splitn(2, ' ').collect();
         let cmd = parts[0];
         let args = parts.get(1).unwrap_or(&"");
@@ -546,108 +656,219 @@ impl ChatSession {
     /// Send a message to AI and handle the response with streaming
     async fn send_ai_response(
         &mut self,
-        client: &GeminiClient,
-        message: &str,
+        client: &LlmClient,
         spinner: &ProgressBar,
+        agent: Option<&mut Agent>,
     ) -> Result<String> {
-        // Send message with streaming, fallback to non-streaming on failure
-        match self.send_message_stream(client, message).await {
-            Ok(mut stream) => {
-                spinner.finish_and_clear();
-                print!("\n{} ", "Gemini:".bright_green().bold());
-                io::stdout().flush()?;
-
-                let mut full_response = String::new();
-                let mut stream_failed = false;
-
-                while let Some(chunk_result) = stream.next().await {
-                    match chunk_result {
-                        Ok(chunk) => {
-                            print!("{chunk}");
-                            io::stdout().flush()?;
-                            full_response.push_str(&chunk);
-                        }
-                        Err(e) => {
-                            println!("\n⚠️  Stream error: {e}");
-                            println!("🔄 Falling back to non-streaming mode...");
-                            stream_failed = true;
-                            break;
-                        }
-                    }
-                }
-
-                // If streaming failed, try non-streaming mode
-                if stream_failed {
-                    // Fallback without duplicating user message in history
-                    let history_len = self.history.len();
-                    let prior = if history_len > 0 {
-                        &self.history[..history_len - 1]
-                    } else {
-                        &self.history[..]
-                    };
-                    match client
-                        .send_message(
-                            &self.model,
-                            message,
-                            prior,
-                            self.system_instruction.as_deref(),
-                        )
-                        .await
-                    {
-                        Ok(response) => {
-                            println!("\n{} {}", "Gemini:".bright_green().bold(), response);
-                            // Add only the model response
-                            self.add_message(Content::model(response.clone()));
-                            full_response = response;
-                        }
-                        Err(e) => {
-                            return Err(anyhow!("Non-streaming fallback also failed: {}", e));
-                        }
-                    }
-                } else {
-                    // Add the complete response to history
-                    if !full_response.is_empty() {
-                        self.add_message(Content::model(full_response.clone()));
-                    }
-                    println!(); // New line after response
-                }
-
-                Ok(full_response)
-            }
-            Err(e) => {
-                spinner.finish_and_clear();
-                println!("⚠️  Streaming failed: {e}");
-                println!("🔄 Trying non-streaming mode...");
-
-                // Fallback to non-streaming mode
-                let history_len = self.history.len();
-                let prior = if history_len > 0 {
-                    &self.history[..history_len - 1]
-                } else {
-                    &self.history[..]
-                };
+        match self.provider {
+            ModelProvider::Gemini => {
+                // Streaming path for Gemini
                 match client
-                    .send_message(
+                    .generate_stream(
                         &self.model,
-                        message,
-                        prior,
+                        &self.history,
                         self.system_instruction.as_deref(),
                     )
                     .await
                 {
-                    Ok(response) => {
-                        println!("\n{} {}", "Gemini:".bright_green().bold(), response);
-                        // Add the model response to history (user already added)
-                        self.add_message(Content::model(response.clone()));
-                        Ok(response)
+                    Ok(mut stream) => {
+                        spinner.finish_and_clear();
+                        print!("\n{} ", self.model_label().bright_green().bold());
+                        io::stdout().flush()?;
+
+                        let mut full_response = String::new();
+                        let mut stream_failed = false;
+
+                        while let Some(chunk_result) = stream.next().await {
+                            match chunk_result {
+                                Ok(chunk) => {
+                                    print!("{chunk}");
+                                    io::stdout().flush()?;
+                                    full_response.push_str(&chunk);
+                                }
+                                Err(e) => {
+                                    println!("\n⚠️  Stream error: {e}");
+                                    println!("🔄 Falling back to non-streaming mode...");
+                                    stream_failed = true;
+                                    break;
+                                }
+                            }
+                        }
+
+                        if stream_failed {
+                            let interaction = self.run_model_interaction(client, agent).await?;
+                            println!(
+                                "\n{} {}",
+                                self.model_label().bright_green().bold(),
+                                interaction.response_text
+                            );
+                            Ok(interaction.response_text)
+                        } else {
+                            if !full_response.is_empty() {
+                                self.add_message(Content::model(full_response.clone()));
+                            }
+                            println!();
+                            Ok(full_response)
+                        }
                     }
-                    Err(e) => Err(anyhow!("Non-streaming fallback also failed: {}", e)),
+                    Err(e) => {
+                        spinner.finish_and_clear();
+                        println!("⚠️  Streaming failed: {e}");
+                        println!("🔄 Trying non-streaming mode...");
+                        let interaction = self.run_model_interaction(client, agent).await?;
+                        println!(
+                            "\n{} {}",
+                            self.model_label().bright_green().bold(),
+                            interaction.response_text
+                        );
+                        Ok(interaction.response_text)
+                    }
                 }
+            }
+            ModelProvider::Ollama => {
+                spinner.finish_and_clear();
+                let interaction = self.run_model_interaction(client, agent).await?;
+
+                for record in &interaction.tool_executions {
+                    let summary = format_tool_result(&record.tool_name, &record.result);
+                    println!("\n🔧 {} {}", "TOOL".bright_green().bold(), summary);
+                }
+
+                if !interaction.response_text.is_empty() {
+                    println!(
+                        "\n{} {}",
+                        self.model_label().bright_green().bold(),
+                        interaction.response_text
+                    );
+                }
+
+                Ok(interaction.response_text)
             }
         }
     }
+
+    fn model_label(&self) -> &'static str {
+        match self.provider {
+            ModelProvider::Gemini => "Gemini",
+            ModelProvider::Ollama => "Ollama",
+        }
+    }
+
+    /// Convenience helper for one-shot requests without agent tooling
+    pub async fn send_with_client(&mut self, client: &LlmClient, message: &str) -> Result<String> {
+        self.add_message(Content::user(message.to_string()));
+        let result = self.run_model_interaction(client, None).await?;
+        Ok(result.response_text)
+    }
 }
 
+fn convert_model_tool_call(call: &ModelToolCall) -> Result<ToolCall> {
+    let parameters = extract_argument_map(&call.arguments)?;
+
+    Ok(ToolCall {
+        tool: call.name.clone(),
+        parameters,
+        thought: None,
+        reasoning: None,
+    })
+}
+
+fn extract_argument_map(value: &Value) -> Result<HashMap<String, Value>> {
+    match value {
+        Value::Null => Ok(HashMap::new()),
+        Value::Object(map) => Ok(map.iter().map(|(k, v)| (k.clone(), v.clone())).collect()),
+        Value::String(s) => {
+            if s.trim().is_empty() {
+                Ok(HashMap::new())
+            } else {
+                let parsed: Value = serde_json::from_str(s)
+                    .context("Failed to parse tool arguments JSON string")?;
+                extract_argument_map(&parsed)
+            }
+        }
+        other => Err(anyhow!(
+            "Tool arguments must be an object; received {}",
+            other
+        )),
+    }
+}
+
+fn build_tool_result_payload(tool_name: &str, result: &ToolResult) -> Value {
+    let modified_files: Vec<Value> = result
+        .modified_files
+        .iter()
+        .map(|path| Value::String(path.display().to_string()))
+        .collect();
+
+    serde_json::json!({
+        "tool": tool_name,
+        "success": result.success,
+        "message": result.message,
+        "data": result.data.clone(),
+        "modified_files": modified_files,
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::PathBuf;
+
+    fn sample_tool_result() -> ToolResult {
+        ToolResult {
+            success: true,
+            data: serde_json::json!({"answer": 42}),
+            message: Some("All good".to_string()),
+            modified_files: vec![PathBuf::from("foo.txt"), PathBuf::from("bar/baz.rs")],
+        }
+    }
+
+    #[test]
+    fn convert_model_tool_call_extracts_parameters() {
+        let call = ModelToolCall {
+            id: Some("tool-1".to_string()),
+            name: "search_files".to_string(),
+            arguments: serde_json::json!({
+                "pattern": "TODO",
+                "path": "src",
+            }),
+        };
+
+        let converted = convert_model_tool_call(&call).expect("conversion should succeed");
+        assert_eq!(converted.tool, "search_files");
+        assert_eq!(
+            converted.parameters.get("pattern").unwrap(),
+            &serde_json::json!("TODO")
+        );
+        assert_eq!(
+            converted.parameters.get("path").unwrap(),
+            &serde_json::json!("src")
+        );
+    }
+
+    #[test]
+    fn extract_argument_map_parses_json_strings() {
+        let raw =
+            serde_json::Value::String("{\"path\": \"src\", \"pattern\": \"TODO\"}".to_string());
+        let map = extract_argument_map(&raw).expect("stringified JSON should parse");
+        assert_eq!(map.get("path").unwrap(), &serde_json::json!("src"));
+        assert_eq!(map.get("pattern").unwrap(), &serde_json::json!("TODO"));
+    }
+
+    #[test]
+    fn build_tool_result_payload_contains_expected_fields() {
+        let payload = build_tool_result_payload("read_file", &sample_tool_result());
+        assert_eq!(payload["tool"], "read_file");
+        assert_eq!(payload["success"], true);
+        assert_eq!(payload["message"], "All good");
+        assert_eq!(payload["data"], serde_json::json!({"answer": 42}));
+
+        let modified = payload["modified_files"].as_array().expect("array");
+        assert_eq!(modified.len(), 2);
+        assert!(modified.iter().any(|v| v == "foo.txt"));
+        assert!(modified.iter().any(|v| v == "bar/baz.rs"));
+    }
+}
 /// Read user input with support for arrow keys, backspace, and multiline input.
 fn read_input_with_features(prompt: &str) -> Result<String> {
     let mut rl = DefaultEditor::new()?;

@@ -1,5 +1,5 @@
 //! Configuration management module
-//! 
+//!
 //! Handles API key storage, user preferences, and configuration file management.
 
 use anyhow::{anyhow, Result};
@@ -10,6 +10,50 @@ use std::fs;
 use std::path::PathBuf;
 
 pub mod settings;
+
+/// Supported model providers
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum ModelProvider {
+    Gemini,
+    Ollama,
+}
+
+impl Default for ModelProvider {
+    fn default() -> Self {
+        Self::Gemini
+    }
+}
+
+impl ModelProvider {
+    /// Whether this provider requires an API key for authentication
+    pub fn requires_api_key(&self) -> bool {
+        matches!(self, Self::Gemini)
+    }
+}
+
+/// Configuration specific to the Ollama provider
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OllamaConfig {
+    /// Base URL for the Ollama server
+    pub endpoint: String,
+}
+
+impl Default for OllamaConfig {
+    fn default() -> Self {
+        Self {
+            endpoint: "http://localhost:11434".to_string(),
+        }
+    }
+}
+
+fn default_provider() -> ModelProvider {
+    ModelProvider::default()
+}
+
+fn default_ollama_config() -> OllamaConfig {
+    OllamaConfig::default()
+}
 
 /// Application configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -24,6 +68,12 @@ pub struct Config {
     pub auto_save: bool,
     /// Sessions directory
     pub sessions_dir: PathBuf,
+    /// Preferred model provider
+    #[serde(default = "default_provider")]
+    pub provider: ModelProvider,
+    /// Provider-specific configuration for Ollama
+    #[serde(default = "default_ollama_config")]
+    pub ollama: OllamaConfig,
 }
 
 impl Default for Config {
@@ -35,6 +85,8 @@ impl Default for Config {
             default_system_instruction: None,
             auto_save: false,
             sessions_dir: config_dir.join("sessions"),
+            provider: ModelProvider::default(),
+            ollama: OllamaConfig::default(),
         }
     }
 }
@@ -49,21 +101,24 @@ impl Config {
     pub async fn load_with_api_key_required(require_api_key: bool) -> Result<Self> {
         // First try to load from config file
         if let Ok(config) = Self::load_from_file().await {
-            if !require_api_key || !config.api_key.is_empty() {
+            if !require_api_key || !config.provider.requires_api_key() || !config.api_key.is_empty()
+            {
                 return Ok(config);
             }
         }
 
         // If no config file, create default and try to get API key from environment
         let mut config = Self::default();
-        
+
         // Try to get API key from environment variable
-        if let Ok(api_key) = std::env::var("GEMINI_API_KEY") {
-            config.api_key = api_key;
-        } else if require_api_key && config.api_key.is_empty() {
-            return Err(anyhow!(
-                "No API key found. Please set GEMINI_API_KEY environment variable or run 'chatter config set-api-key'"
-            ));
+        if config.provider.requires_api_key() {
+            if let Ok(api_key) = std::env::var("GEMINI_API_KEY") {
+                config.api_key = api_key;
+            } else if require_api_key && config.api_key.is_empty() {
+                return Err(anyhow!(
+                    "No API key found. Please set GEMINI_API_KEY environment variable or run 'chatter config set-api-key'"
+                ));
+            }
         }
 
         Ok(config)
@@ -119,19 +174,36 @@ impl Config {
     /// Display current configuration
     pub fn display(&self) {
         println!("📋 Current Configuration:");
-        println!("  API Key: {}", if self.api_key.is_empty() { "Not set" } else { "Set (hidden)" });
+        println!(
+            "  Provider: {}",
+            match self.provider {
+                ModelProvider::Gemini => "Gemini",
+                ModelProvider::Ollama => "Ollama",
+            }
+        );
+        println!(
+            "  API Key: {}",
+            if self.api_key.is_empty() {
+                "Not set"
+            } else {
+                "Set (hidden)"
+            }
+        );
         println!("  Default Model: {}", self.default_model);
         println!("  Auto-save: {}", self.auto_save);
         println!("  Sessions Directory: {}", self.sessions_dir.display());
         if let Some(ref system) = self.default_system_instruction {
             println!("  Default System Instruction: {system}");
         }
+        if matches!(self.provider, ModelProvider::Ollama) {
+            println!("  Ollama Endpoint: {}", self.ollama.endpoint);
+        }
     }
 
     /// Reset configuration to defaults
     pub async fn reset(&mut self) -> Result<()> {
         *self = Self::default();
-        
+
         // Remove config file if it exists
         let config_path = get_config_file_path();
         if config_path.exists() {

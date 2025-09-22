@@ -3,6 +3,7 @@
 //! Provides tools for file operations, search, and autonomous task completion
 //! within a safe, sandboxed environment.
 
+use crate::api::ToolDefinition;
 use anyhow::{anyhow, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -185,6 +186,15 @@ impl Agent {
     /// Get available tools
     pub fn available_tools(&self) -> Vec<String> {
         self.executor.available_tools()
+    }
+
+    /// Get structured tool definitions for LLM function calling
+    pub fn tool_definitions(&self) -> Vec<ToolDefinition> {
+        self.executor
+            .tool_infos()
+            .into_iter()
+            .map(|info| ToolDefinition::new(info.name, info.description, info.parameters))
+            .collect()
     }
 
     /// Get detailed descriptions for available tools

@@ -1,5 +1,5 @@
 //! Built-in system instruction templates
-//! 
+//!
 //! Provides a collection of useful pre-defined templates for common use cases.
 
 use super::Template;
