@@ -3,6 +3,7 @@
 //! Provides tools for file operations, search, and autonomous task completion
 //! within a safe, sandboxed environment.
 
+use crate::api::ToolDefinition;
 use anyhow::{anyhow, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -37,6 +38,7 @@ pub struct AgentConfig {
 
 impl Default for AgentConfig {
     fn default() -> Self {
+        let working_directory = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
         Self {
             enabled: false,
             allowed_extensions: vec![
@@ -57,7 +59,7 @@ impl Default for AgentConfig {
                 "log".to_string(),
             ],
             max_file_size: 10 * 1024 * 1024, // 10MB
-            working_directory: PathBuf::from("."),
+            working_directory,
             auto_backup: true,
             dry_run_mode: false,
         }
@@ -76,7 +78,9 @@ pub struct Agent {
 
 impl Agent {
     /// Create a new agent with the given configuration
-    pub fn new(config: AgentConfig) -> Result<Self> {
+    pub fn new(mut config: AgentConfig) -> Result<Self> {
+        config.working_directory = normalize_working_directory(&config.working_directory)?;
+
         let safety_manager = SafetyManager::new(&config)?;
         let executor = AgentExecutor::new(config.clone(), safety_manager.clone())?;
         let completion_detector = CompletionDetector::new();
@@ -106,7 +110,8 @@ impl Agent {
     }
 
     /// Update configuration
-    pub fn update_config(&mut self, config: AgentConfig) -> Result<()> {
+    pub fn update_config(&mut self, mut config: AgentConfig) -> Result<()> {
+        config.working_directory = normalize_working_directory(&config.working_directory)?;
         self.safety_manager = SafetyManager::new(&config)?;
         self.executor = AgentExecutor::new(config.clone(), self.safety_manager.clone())?;
         self.config = config;
@@ -185,6 +190,15 @@ impl Agent {
     /// Get available tools
     pub fn available_tools(&self) -> Vec<String> {
         self.executor.available_tools()
+    }
+
+    /// Get structured tool definitions for LLM function calling
+    pub fn tool_definitions(&self) -> Vec<ToolDefinition> {
+        self.executor
+            .tool_infos()
+            .into_iter()
+            .map(|info| ToolDefinition::new(info.name, info.description, info.parameters))
+            .collect()
     }
 
     /// Get detailed descriptions for available tools
@@ -394,4 +408,29 @@ pub struct AgentStatus {
     pub working_directory: PathBuf,
     pub dry_run_mode: bool,
     pub available_tools: Vec<String>,
+}
+
+fn normalize_working_directory(path: &Path) -> Result<PathBuf> {
+    if path.is_absolute() {
+        Ok(path.to_path_buf())
+    } else {
+        Ok(std::env::current_dir()?.join(path))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn normalize_working_directory_converts_relative_path() {
+        let normalized = normalize_working_directory(Path::new(".")).unwrap();
+        assert!(normalized.is_absolute());
+    }
+
+    #[test]
+    fn normalize_working_directory_preserves_absolute_path() {
+        let normalized = normalize_working_directory(Path::new("/tmp")).unwrap();
+        assert_eq!(normalized, PathBuf::from("/tmp"));
+    }
 }

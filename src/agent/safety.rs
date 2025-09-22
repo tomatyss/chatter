@@ -1,5 +1,5 @@
 //! Safety and sandboxing module for agent operations
-//! 
+//!
 //! Provides security checks and restrictions to ensure safe file operations.
 
 use super::{AgentConfig, ToolCall};
@@ -32,7 +32,8 @@ impl SafetyManager {
     /// Set up default path restrictions
     fn setup_default_restrictions(&mut self) -> Result<()> {
         // Allow operations in the working directory and subdirectories
-        self.allowed_paths.push(self.config.working_directory.clone());
+        self.allowed_paths
+            .push(self.config.working_directory.clone());
 
         // Forbidden system paths
         let forbidden = [
@@ -183,9 +184,22 @@ impl SafetyManager {
 
         // Check for common sensitive files
         let sensitive_patterns = [
-            "passwd", "shadow", "hosts", "sudoers", "ssh_config", "authorized_keys",
-            "id_rsa", "id_dsa", "id_ecdsa", "id_ed25519", ".env", "config.json",
-            "database.yml", "secrets.yml", "private.key", "certificate.pem",
+            "passwd",
+            "shadow",
+            "hosts",
+            "sudoers",
+            "ssh_config",
+            "authorized_keys",
+            "id_rsa",
+            "id_dsa",
+            "id_ecdsa",
+            "id_ed25519",
+            ".env",
+            "config.json",
+            "database.yml",
+            "secrets.yml",
+            "private.key",
+            "certificate.pem",
         ];
 
         for pattern in &sensitive_patterns {
@@ -227,7 +241,7 @@ impl SafetyManager {
 
         if let Some(extension) = path.extension().and_then(|ext| ext.to_str()) {
             let ext_lower = extension.to_lowercase();
-            
+
             if !self.config.allowed_extensions.contains(&ext_lower) {
                 return Err(anyhow!(
                     "File extension '{}' is not allowed. Allowed extensions: {}",
@@ -245,10 +259,22 @@ impl SafetyManager {
         if let Some(content) = tool_call.parameters.get("content").and_then(|v| v.as_str()) {
             // Check for potentially dangerous content patterns
             let dangerous_patterns = [
-                "rm -rf", "del /s", "format c:", "dd if=", ":(){ :|:& };:",
-                "sudo rm", "chmod 777", "wget http", "curl http",
-                "eval(", "exec(", "system(", "shell_exec(",
-                "<script", "javascript:", "data:text/html",
+                "rm -rf",
+                "del /s",
+                "format c:",
+                "dd if=",
+                ":(){ :|:& };:",
+                "sudo rm",
+                "chmod 777",
+                "wget http",
+                "curl http",
+                "eval(",
+                "exec(",
+                "system(",
+                "shell_exec(",
+                "<script",
+                "javascript:",
+                "data:text/html",
             ];
 
             let content_lower = content.to_lowercase();
@@ -262,9 +288,12 @@ impl SafetyManager {
             }
 
             // Check for excessive binary content
-            let binary_chars = content.chars().filter(|c| c.is_control() && *c != '\n' && *c != '\r' && *c != '\t').count();
+            let binary_chars = content
+                .chars()
+                .filter(|c| c.is_control() && *c != '\n' && *c != '\r' && *c != '\t')
+                .count();
             let binary_ratio = binary_chars as f64 / content.len() as f64;
-            
+
             if binary_ratio > 0.1 {
                 return Err(anyhow!(
                     "Content appears to contain binary data ({}% non-text characters)",
@@ -279,7 +308,7 @@ impl SafetyManager {
     /// Normalize a path by resolving . and .. components
     fn normalize_path(&self, path: &Path) -> Result<PathBuf> {
         let mut components = Vec::new();
-        
+
         for component in path.components() {
             match component {
                 std::path::Component::Normal(name) => {
@@ -319,7 +348,7 @@ impl SafetyManager {
 
         // Simple wildcard matching - convert * to regex .*
         let regex_pattern = pattern_str.replace('*', ".*");
-        
+
         if let Ok(regex) = regex::Regex::new(&regex_pattern) {
             Ok(regex.is_match(&path_str))
         } else {
@@ -386,7 +415,10 @@ mod tests {
         let safety = SafetyManager::new(&config).unwrap();
 
         let mut params = HashMap::new();
-        params.insert("path".to_string(), serde_json::Value::String("../../../etc/passwd".to_string()));
+        params.insert(
+            "path".to_string(),
+            serde_json::Value::String("../../../etc/passwd".to_string()),
+        );
 
         let tool_call = ToolCall {
             tool: "read_file".to_string(),
@@ -404,7 +436,10 @@ mod tests {
         let safety = SafetyManager::new(&config).unwrap();
 
         let mut params = HashMap::new();
-        params.insert("path".to_string(), serde_json::Value::String("test.exe".to_string()));
+        params.insert(
+            "path".to_string(),
+            serde_json::Value::String("test.exe".to_string()),
+        );
 
         let tool_call = ToolCall {
             tool: "read_file".to_string(),
@@ -424,8 +459,14 @@ mod tests {
         let large_content = "x".repeat(2048); // Exceeds max_file_size of 1024
 
         let mut params = HashMap::new();
-        params.insert("path".to_string(), serde_json::Value::String("test.txt".to_string()));
-        params.insert("content".to_string(), serde_json::Value::String(large_content));
+        params.insert(
+            "path".to_string(),
+            serde_json::Value::String("test.txt".to_string()),
+        );
+        params.insert(
+            "content".to_string(),
+            serde_json::Value::String(large_content),
+        );
 
         let tool_call = ToolCall {
             tool: "write_file".to_string(),
@@ -443,8 +484,14 @@ mod tests {
         let safety = SafetyManager::new(&config).unwrap();
 
         let mut params = HashMap::new();
-        params.insert("path".to_string(), serde_json::Value::String("test.txt".to_string()));
-        params.insert("content".to_string(), serde_json::Value::String("rm -rf /".to_string()));
+        params.insert(
+            "path".to_string(),
+            serde_json::Value::String("test.txt".to_string()),
+        );
+        params.insert(
+            "content".to_string(),
+            serde_json::Value::String("rm -rf /".to_string()),
+        );
 
         let tool_call = ToolCall {
             tool: "write_file".to_string(),

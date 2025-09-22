@@ -398,7 +398,7 @@ pub async fn process_agent_tools(
 }
 
 /// Format tool execution results for display
-fn format_tool_result(tool_name: &str, result: &crate::agent::ToolResult) -> String {
+pub(crate) fn format_tool_result(tool_name: &str, result: &crate::agent::ToolResult) -> String {
     match tool_name {
         "read_file" => {
             if let Some(content) = result.data.get("content").and_then(|c| c.as_str()) {

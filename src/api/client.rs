@@ -230,18 +230,10 @@ impl GeminiClient {
     pub async fn send_message(
         &self,
         model: &str,
-        message: &str,
-        history: &[Content],
+        conversation: &[Content],
         system_instruction: Option<&str>,
     ) -> Result<String> {
-        let mut contents = history.to_vec();
-        contents.push(Content::user(message.to_string()));
-
-        let mut request = GenerateContentRequest::new(contents);
-
-        if let Some(instruction) = system_instruction {
-            request = request.with_system_instruction(instruction.to_string());
-        }
+        let request = build_gemini_request(conversation, system_instruction);
 
         let response = self.generate_content(model, request).await?;
 
@@ -254,19 +246,89 @@ impl GeminiClient {
     pub async fn send_message_stream(
         &self,
         model: &str,
-        message: &str,
-        history: &[Content],
+        conversation: &[Content],
         system_instruction: Option<&str>,
     ) -> Result<impl tokio_stream::Stream<Item = Result<String>>> {
-        let mut contents = history.to_vec();
-        contents.push(Content::user(message.to_string()));
-
-        let mut request = GenerateContentRequest::new(contents);
-
-        if let Some(instruction) = system_instruction {
-            request = request.with_system_instruction(instruction.to_string());
-        }
+        let request = build_gemini_request(conversation, system_instruction);
 
         self.generate_content_stream(model, request).await
+    }
+}
+
+fn build_gemini_request(
+    conversation: &[Content],
+    system_instruction: Option<&str>,
+) -> GenerateContentRequest {
+    let mut request = GenerateContentRequest::new(normalize_conversation_for_gemini(conversation));
+
+    if let Some(instruction) = system_instruction {
+        request = request.with_system_instruction(instruction.to_string());
+    }
+
+    request
+}
+
+fn normalize_conversation_for_gemini(conversation: &[Content]) -> Vec<Content> {
+    conversation
+        .iter()
+        .filter_map(|content| match content.role.as_str() {
+            "user" => Some(Content {
+                role: "user".to_string(),
+                parts: content.parts.clone(),
+                name: None,
+                tool_call_id: None,
+                tool_calls: Vec::new(),
+            }),
+            "model" | "assistant" => Some(Content {
+                role: "model".to_string(),
+                parts: content.parts.clone(),
+                name: None,
+                tool_call_id: None,
+                tool_calls: Vec::new(),
+            }),
+            _ => None,
+        })
+        .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn content_with_role(role: &str, text: &str) -> Content {
+        Content {
+            role: role.to_string(),
+            parts: vec![Part {
+                text: text.to_string(),
+            }],
+            name: None,
+            tool_call_id: None,
+            tool_calls: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn normalize_conversation_filters_and_maps_roles() {
+        let conversation = vec![
+            content_with_role("user", "Hello"),
+            content_with_role("assistant", "Hi there"),
+            content_with_role("system", "Guidance"),
+            content_with_role("tool", "Tool output"),
+            content_with_role("model", "Response"),
+        ];
+
+        let normalized = normalize_conversation_for_gemini(&conversation);
+
+        assert_eq!(
+            normalized.len(),
+            3,
+            "system/tool messages should be dropped"
+        );
+        assert_eq!(normalized[0].role, "user");
+        assert_eq!(normalized[0].parts[0].text, "Hello");
+        assert_eq!(normalized[1].role, "model");
+        assert_eq!(normalized[1].parts[0].text, "Hi there");
+        assert_eq!(normalized[2].role, "model");
+        assert_eq!(normalized[2].parts[0].text, "Response");
     }
 }

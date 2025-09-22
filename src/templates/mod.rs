@@ -1,5 +1,5 @@
 //! System instruction template management module
-//! 
+//!
 //! Provides functionality for creating, storing, and managing reusable system instruction templates.
 
 use anyhow::{anyhow, Result};
@@ -7,11 +7,11 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-pub mod storage;
 pub mod builtin;
+pub mod storage;
 
-pub use storage::TemplateStorage;
 pub use builtin::get_builtin_templates;
+pub use storage::TemplateStorage;
 
 /// A system instruction template
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -115,7 +115,10 @@ impl Template {
         self.name.to_lowercase().contains(&query)
             || self.description.to_lowercase().contains(&query)
             || self.category.to_lowercase().contains(&query)
-            || self.tags.iter().any(|tag| tag.to_lowercase().contains(&query))
+            || self
+                .tags
+                .iter()
+                .any(|tag| tag.to_lowercase().contains(&query))
     }
 }
 
@@ -133,28 +136,28 @@ impl TemplateManager {
             storage,
             templates: HashMap::new(),
         };
-        
+
         // Load all templates
         manager.reload().await?;
-        
+
         Ok(manager)
     }
 
     /// Reload all templates from storage
     pub async fn reload(&mut self) -> Result<()> {
         self.templates.clear();
-        
+
         // Load built-in templates
         for template in get_builtin_templates() {
             self.templates.insert(template.name.clone(), template);
         }
-        
+
         // Load user templates
         let user_templates = self.storage.load_all().await?;
         for template in user_templates {
             self.templates.insert(template.name.clone(), template);
         }
-        
+
         Ok(())
     }
 
@@ -196,16 +199,18 @@ impl TemplateManager {
 
         // Save to storage
         self.storage.save(&template).await?;
-        
+
         // Add to memory
         self.templates.insert(template.name.clone(), template);
-        
+
         Ok(())
     }
 
     /// Update an existing template
     pub async fn update(&mut self, name: &str, mut template: Template) -> Result<()> {
-        let existing = self.templates.get(name)
+        let existing = self
+            .templates
+            .get(name)
             .ok_or_else(|| anyhow!("Template '{}' not found", name))?;
 
         if existing.builtin {
@@ -218,16 +223,18 @@ impl TemplateManager {
 
         // Save to storage
         self.storage.save(&template).await?;
-        
+
         // Update in memory
         self.templates.insert(template.name.clone(), template);
-        
+
         Ok(())
     }
 
     /// Delete a template
     pub async fn delete(&mut self, name: &str) -> Result<()> {
-        let template = self.templates.get(name)
+        let template = self
+            .templates
+            .get(name)
             .ok_or_else(|| anyhow!("Template '{}' not found", name))?;
 
         if template.builtin {
@@ -236,16 +243,17 @@ impl TemplateManager {
 
         // Remove from storage
         self.storage.delete(name).await?;
-        
+
         // Remove from memory
         self.templates.remove(name);
-        
+
         Ok(())
     }
 
     /// Get all unique categories
     pub fn get_categories(&self) -> Vec<String> {
-        let mut categories: Vec<String> = self.templates
+        let mut categories: Vec<String> = self
+            .templates
             .values()
             .map(|t| t.category.clone())
             .collect::<std::collections::HashSet<_>>()
@@ -258,7 +266,8 @@ impl TemplateManager {
     /// Get all unique tags
     #[allow(dead_code)]
     pub fn get_tags(&self) -> Vec<String> {
-        let mut tags: Vec<String> = self.templates
+        let mut tags: Vec<String> = self
+            .templates
             .values()
             .flat_map(|t| t.tags.iter().cloned())
             .collect::<std::collections::HashSet<_>>()

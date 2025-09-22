@@ -60,6 +60,18 @@ impl AgentExecutor {
         self.tools.keys().cloned().collect()
     }
 
+    /// Get detailed information for all registered tools
+    pub fn tool_infos(&self) -> Vec<ToolInfo> {
+        self.tools
+            .values()
+            .map(|tool| ToolInfo {
+                name: tool.name().to_string(),
+                description: tool.description().to_string(),
+                parameters: tool.parameters(),
+            })
+            .collect()
+    }
+
     /// Get tool information
     pub fn get_tool_info(&self, name: &str) -> Option<ToolInfo> {
         self.tools.get(name).map(|tool| ToolInfo {

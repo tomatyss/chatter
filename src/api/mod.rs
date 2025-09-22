@@ -1,23 +1,26 @@
 //! Gemini API client module
-//! 
+//!
 //! Handles communication with Google's Gemini API, including request/response
 //! serialization, streaming, and error handling.
 
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use std::time::Duration;
 
 pub mod client;
+pub mod llm;
 pub mod models;
+pub mod ollama;
 pub mod streaming;
 
-pub use client::GeminiClient;
+pub use llm::{LlmClient, ToolDefinition};
 
 /// Base URL for the Gemini API
 const GEMINI_API_BASE: &str = "https://generativelanguage.googleapis.com/v1beta";
 
 /// HTTP client configuration
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(300); // 5 minutes for streaming responses
-const CONNECT_TIMEOUT: Duration = Duration::from_secs(30);  // 30 seconds to establish connection
+const CONNECT_TIMEOUT: Duration = Duration::from_secs(30); // 30 seconds to establish connection
 
 /// Content part in a message
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -30,6 +33,26 @@ pub struct Part {
 pub struct Content {
     pub role: String,
     pub parts: Vec<Part>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default)]
+    pub name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default)]
+    pub tool_call_id: Option<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    #[serde(default)]
+    pub tool_calls: Vec<ModelToolCall>,
+}
+
+/// Model tool call representation used across providers
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ModelToolCall {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default)]
+    pub id: Option<String>,
+    pub name: String,
+    #[serde(default)]
+    pub arguments: Value,
 }
 
 /// System instruction for the model
@@ -108,6 +131,9 @@ impl Content {
         Self {
             role: "user".to_string(),
             parts: vec![Part { text }],
+            name: None,
+            tool_call_id: None,
+            tool_calls: Vec::new(),
         }
     }
 
@@ -116,6 +142,9 @@ impl Content {
         Self {
             role: "model".to_string(),
             parts: vec![Part { text }],
+            name: None,
+            tool_call_id: None,
+            tool_calls: Vec::new(),
         }
     }
 }

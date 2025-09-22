@@ -1,5 +1,5 @@
 //! Template storage functionality
-//! 
+//!
 //! Handles file I/O operations for template persistence.
 
 use super::Template;
@@ -17,37 +17,41 @@ impl TemplateStorage {
     /// Create a new template storage manager
     pub async fn new() -> Result<Self> {
         let templates_dir = get_templates_dir();
-        
+
         // Create templates directory if it doesn't exist
         fs::create_dir_all(&templates_dir)?;
-        
+
         Ok(Self { templates_dir })
     }
 
     /// Load all user templates from storage
     pub async fn load_all(&self) -> Result<Vec<Template>> {
         let mut templates = Vec::new();
-        
+
         if !self.templates_dir.exists() {
             return Ok(templates);
         }
 
         let entries = fs::read_dir(&self.templates_dir)?;
-        
+
         for entry in entries {
             let entry = entry?;
             let path = entry.path();
-            
+
             if path.extension().and_then(|s| s.to_str()) == Some("json") {
                 match self.load_template(&path).await {
                     Ok(template) => templates.push(template),
                     Err(e) => {
-                        eprintln!("Warning: Failed to load template from {}: {}", path.display(), e);
+                        eprintln!(
+                            "Warning: Failed to load template from {}: {}",
+                            path.display(),
+                            e
+                        );
                     }
                 }
             }
         }
-        
+
         Ok(templates)
     }
 
@@ -66,10 +70,10 @@ impl TemplateStorage {
 
         let filename = format!("{}.json", sanitize_filename(&template.name));
         let path = self.templates_dir.join(filename);
-        
+
         let content = serde_json::to_string_pretty(template)?;
         fs::write(&path, content)?;
-        
+
         Ok(())
     }
 
@@ -77,11 +81,11 @@ impl TemplateStorage {
     pub async fn delete(&self, name: &str) -> Result<()> {
         let filename = format!("{}.json", sanitize_filename(name));
         let path = self.templates_dir.join(filename);
-        
+
         if !path.exists() {
             return Err(anyhow!("Template file not found: {}", path.display()));
         }
-        
+
         fs::remove_file(&path)?;
         Ok(())
     }

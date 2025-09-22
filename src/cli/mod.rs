@@ -12,8 +12,12 @@ pub mod commands;
 #[command(author = "Your Name <your.email@example.com>")]
 pub struct Cli {
     /// Model to use for the conversation
-    #[arg(short, long, value_enum)]
-    pub model: Option<GeminiModel>,
+    #[arg(short, long)]
+    pub model: Option<String>,
+
+    /// Model provider (gemini or ollama)
+    #[arg(long, value_enum)]
+    pub provider: Option<ProviderArg>,
 
     /// System instruction to guide the AI's behavior
     #[arg(short, long)]
@@ -30,6 +34,10 @@ pub struct Cli {
     /// Auto-save the chat session
     #[arg(short, long)]
     pub auto_save: bool,
+
+    /// Message to send once and exit
+    #[arg(value_name = "MESSAGE")]
+    pub prompt: Option<String>,
 
     /// Subcommands
     #[command(subcommand)]
@@ -48,8 +56,11 @@ pub enum Commands {
         /// The message to send
         message: String,
         /// Model to use for this query
-        #[arg(short, long, value_enum)]
-        model: Option<GeminiModel>,
+        #[arg(short, long)]
+        model: Option<String>,
+        /// Model provider to use for this query
+        #[arg(long, value_enum)]
+        provider: Option<ProviderArg>,
         /// System instruction for this query
         #[arg(short, long)]
         system: Option<String>,
@@ -119,34 +130,35 @@ pub enum TemplateAction {
         /// Template name
         name: String,
         /// Model to use
-        #[arg(short, long, value_enum)]
-        model: Option<GeminiModel>,
+        #[arg(short, long)]
+        model: Option<String>,
+        /// Model provider to use
+        #[arg(long, value_enum)]
+        provider: Option<ProviderArg>,
     },
 }
 
-/// Available Gemini models
-#[derive(Clone, Debug, ValueEnum)]
-#[derive(Default)]
-pub enum GeminiModel {
-    #[value(name = "gemini-2.5-flash")]
-    #[default]
-    Flash25,
-    #[value(name = "gemini-2.5-pro")]
-    Pro25,
-    #[value(name = "gemini-1.5-flash")]
-    Flash15,
-    #[value(name = "gemini-1.5-pro")]
-    Pro15,
+/// CLI model provider argument
+#[derive(Copy, Clone, Debug, ValueEnum)]
+pub enum ProviderArg {
+    Gemini,
+    Ollama,
 }
 
-impl GeminiModel {
-    #[allow(dead_code)]
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            GeminiModel::Flash25 => "gemini-2.5-flash",
-            GeminiModel::Pro25 => "gemini-2.5-pro",
-            GeminiModel::Flash15 => "gemini-1.5-flash",
-            GeminiModel::Pro15 => "gemini-1.5-pro",
+impl From<ProviderArg> for crate::config::ModelProvider {
+    fn from(arg: ProviderArg) -> Self {
+        match arg {
+            ProviderArg::Gemini => Self::Gemini,
+            ProviderArg::Ollama => Self::Ollama,
+        }
+    }
+}
+
+impl From<&crate::config::ModelProvider> for ProviderArg {
+    fn from(provider: &crate::config::ModelProvider) -> Self {
+        match provider {
+            crate::config::ModelProvider::Gemini => ProviderArg::Gemini,
+            crate::config::ModelProvider::Ollama => ProviderArg::Ollama,
         }
     }
 }
