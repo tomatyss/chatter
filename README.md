@@ -101,10 +101,11 @@ If you omit `--provider`, Chatter uses the provider stored in your configuration
 Enable autonomous file operations with agent mode:
 
 ```bash
-# In interactive chat, enable agent mode
+# In interactive chat, enable agent mode and set the working directory (optional)
 /agent on
+/agent allow-path .
 
-# The AI can now execute file operations automatically
+# The AI can now execute file operations automatically relative to the current directory
 You: Please read the file config.json and search for TODO comments in all Rust files
 
 🔧 AGENT: Executing tool: read_file
@@ -124,6 +125,8 @@ You: Please read the file config.json and search for TODO comments in all Rust f
 - `/agent history` - Show tool execution history
 - `/agent tools` - List available tools
 - `/agent config` - Show agent configuration
+- `/agent allow-path <path>` - Temporarily permit an additional directory
+- `/agent forbid-path <path>` - Block access to a directory
 - `/agent help` - Show agent help
 
 #### Available Tools
@@ -138,7 +141,7 @@ You: Please read the file config.json and search for TODO comments in all Rust f
 ### Ollama Integration
 
 - Run any locally installed model exposed by Ollama with `--provider ollama --model <name>`
-- When agent mode is enabled, Chatter automatically exposes its file-system tools to the model using Ollama's function-calling API
+- When agent mode is enabled, Chatter automatically exposes its file-system tools to the model using Ollama's function-calling API. Tools operate relative to the current working directory by default; add extra directories with `/agent allow-path` as needed.
 - Tool results are sent back to the model and also summarized in the terminal so you can follow along
 - The Ollama endpoint defaults to `http://localhost:11434`; override it in `config.json` if your server runs elsewhere
 
