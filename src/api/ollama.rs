@@ -186,8 +186,7 @@ fn convert_content_to_ollama_message(content: &Content) -> OllamaMessage {
                 id: call.id.clone(),
                 function: OllamaToolFunctionCall {
                     name: call.name.clone(),
-                    arguments: serde_json::to_string(&call.arguments)
-                        .unwrap_or_else(|_| call.arguments.to_string()),
+                    arguments: call.arguments.clone(),
                 },
             })
             .collect();
@@ -246,7 +245,7 @@ struct OllamaMessageToolCall {
 #[derive(Debug, Serialize)]
 struct OllamaToolFunctionCall {
     name: String,
-    arguments: String,
+    arguments: Value,
 }
 
 #[derive(Debug, Serialize)]
