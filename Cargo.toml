@@ -30,7 +30,7 @@ colored = "2.0"
 dialoguer = "0.12"
 indicatif = "0.17"
 walkdir = "2.4"
-regex = "1.10"
+regex = "1.11"
 rustyline = { version = "17.0", features = ["with-file-history"] }
 
 [dev-dependencies]
