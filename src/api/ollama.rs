@@ -1,6 +1,6 @@
 use super::{Content, ModelToolCall, Part, CONNECT_TIMEOUT, REQUEST_TIMEOUT};
 use crate::api::llm::{ChatResponse, ToolDefinition};
-use anyhow::{anyhow, Result};
+use anyhow::{anyhow, Context, Result};
 use reqwest::Client;
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::{self, Value};
@@ -91,21 +91,28 @@ impl OllamaClient {
             .send()
             .await?;
 
-        if !response.status().is_success() {
-            let error_text = response
-                .text()
-                .await
-                .unwrap_or_else(|_| "<no body>".to_string());
+        let status = response.status();
+        let bytes = response.bytes().await?;
+
+        if !status.is_success() {
+            let error_text = String::from_utf8_lossy(&bytes);
             return Err(anyhow!("Ollama request failed: {}", error_text));
         }
 
-        let response: OllamaChatResponse = response.json().await?;
+        let response: OllamaChatResponse = serde_json::from_slice(&bytes).with_context(|| {
+            format!(
+                "Failed to decode Ollama response body: {}",
+                String::from_utf8_lossy(&bytes)
+            )
+        })?;
         let message = response.message;
 
         let mut tool_calls = Vec::new();
         for call in message.tool_calls.unwrap_or_default() {
-            if call.kind != "function" {
-                continue;
+            if let Some(kind) = &call.kind {
+                if kind != "function" {
+                    continue;
+                }
             }
             let arguments = call.function.arguments;
             tool_calls.push(ModelToolCall {
@@ -275,8 +282,8 @@ struct OllamaResponseMessage {
 struct OllamaResponseToolCall {
     #[serde(default)]
     id: Option<String>,
-    #[serde(rename = "type")]
-    kind: String,
+    #[serde(rename = "type", default)]
+    kind: Option<String>,
     function: OllamaResponseFunction,
 }
 
@@ -304,5 +311,38 @@ where
             }
         }
         other => Ok(other),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_tool_call_without_type_field() {
+        let payload = r#"{
+            "model": "qwen3",
+            "created_at": "2025-09-22T14:42:33.34871Z",
+            "message": {
+                "role": "assistant",
+                "content": "",
+                "tool_calls": [
+                    {
+                        "function": {
+                            "name": "read_file",
+                            "arguments": {"path": "Cargo.toml"}
+                        }
+                    }
+                ]
+            },
+            "done": true,
+            "done_reason": "stop"
+        }"#;
+
+        let response: OllamaChatResponse = serde_json::from_str(payload).unwrap();
+        let calls = response.message.tool_calls.unwrap();
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].function.name, "read_file");
+        assert_eq!(calls[0].function.arguments["path"], "Cargo.toml");
     }
 }
