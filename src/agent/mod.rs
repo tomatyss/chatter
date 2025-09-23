@@ -430,7 +430,8 @@ mod tests {
 
     #[test]
     fn normalize_working_directory_preserves_absolute_path() {
-        let normalized = normalize_working_directory(Path::new("/tmp")).unwrap();
-        assert_eq!(normalized, PathBuf::from("/tmp"));
+        let absolute = std::env::temp_dir();
+        let normalized = normalize_working_directory(absolute.as_path()).unwrap();
+        assert_eq!(normalized, absolute);
     }
 }
