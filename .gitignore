@@ -43,6 +43,7 @@ cobertura.xml
 lcov.info
 
 # Documentation build
+docs/book/
 /doc/
 
 # Rust analyzer

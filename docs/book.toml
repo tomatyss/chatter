@@ -1,0 +1,14 @@
+[book]
+title = "Chatter Documentation"
+description = "User and developer guide for the Chatter terminal client"
+author = ["Chatter Contributors"]
+language = "en"
+multilingual = false
+
+[build]
+create-missing = false
+
+[output.html]
+default-theme = "light"
+preferred-dark-theme = "navy"
+additional-js = []
