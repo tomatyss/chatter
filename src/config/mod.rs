@@ -94,7 +94,9 @@ impl Default for Config {
 impl Config {
     /// Load configuration from file or environment
     pub async fn load() -> Result<Self> {
-        Self::load_with_api_key_required(true).await
+        // Defer API key validation to the point where we actually need it so that
+        // users can run Ollama-only workflows without configuring Gemini first.
+        Self::load_with_api_key_required(false).await
     }
 
     /// Load configuration, optionally requiring an API key

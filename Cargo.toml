@@ -35,3 +35,15 @@ rustyline = { version = "17.0", features = ["with-file-history"] }
 
 [dev-dependencies]
 tokio-test = "0.4"
+
+[package.metadata.deb]
+maintainer = "Chatter Contributors <noreply@github.com>"
+depends = "$auto"
+section = "utils"
+priority = "optional"
+extended-description = "Terminal-based chat interface for Google's Gemini API and local Ollama models. Includes interactive chat, templated system prompts, and an optional file-system agent capable of executing safe tooling."
+assets = [
+    ["target/release/chatter", "usr/bin/", "755"],
+    ["README.md", "usr/share/doc/chatter/", "644"],
+    ["LICENSE", "usr/share/doc/chatter/", "644"]
+]
