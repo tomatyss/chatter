@@ -14,7 +14,7 @@ Set a Gemini API key once and Chatter will reuse it for future sessions:
 chatter config set-api-key
 ```
 
-Alternatively, export the `GEMINI_API_KEY` environment variable before starting the CLI. The configuration file stores keys securely using your OS keyring when available.
+Alternatively, export the `GEMINI_API_KEY` environment variable before starting the CLI. Chatter currently stores the API key directly in the plaintext JSON configuration file, so treat `config.json` as sensitive and manage file permissions accordingly.
 
 ## Provider Defaults
 
