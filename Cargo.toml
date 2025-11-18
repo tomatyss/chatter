@@ -28,7 +28,7 @@ tokio-stream = "0.1"
 futures-util = "0.3"
 colored = "3.0"
 dialoguer = "0.12"
-indicatif = "0.17"
+indicatif = "0.18"
 walkdir = "2.4"
 regex = "1.12"
 rustyline = { version = "17.0", features = ["with-file-history"] }
