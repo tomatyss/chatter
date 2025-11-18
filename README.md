@@ -15,6 +15,16 @@ A terminal-based chat interface for Google's Gemini API and local Ollama models,
 - **Configuration Management**: Secure API key storage
 - **Homebrew Installation**: Easy installation via `brew install`
 
+## Documentation
+
+Full project docs live in the `docs/` directory and can be built with [mdBook](https://rust-lang.github.io/mdBook/):
+
+```bash
+mdbook serve docs
+```
+
+This command launches a local preview server at http://localhost:3000.
+
 ## Installation
 
 ### Debian / Ubuntu (APT repository)
