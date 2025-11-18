@@ -1,0 +1,131 @@
+name: Publish Debian Package
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  debian:
+    runs-on: ubuntu-latest
+    env:
+      CARGO_TERM_COLOR: always
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y pkg-config libssl-dev libclang-dev cmake dpkg-dev apt-utils
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo builds
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install cargo-deb
+        run: cargo install cargo-deb
+
+      - name: Build release binary
+        run: cargo build --release --locked
+
+      - name: Build Debian package
+        run: cargo deb --no-build
+
+      - name: Locate Debian package
+        id: deb
+        run: |
+          DEB_FILE=$(ls target/debian/*.deb | head -n 1)
+          echo "deb_path=$DEB_FILE" >> "$GITHUB_OUTPUT"
+          echo "deb_name=$(basename "$DEB_FILE")" >> "$GITHUB_OUTPUT"
+
+      - name: Prepare apt repository
+        run: |
+          DEB_FILE="${{ steps.deb.outputs.deb_path }}"
+          REPO_DIR=apt-repo
+          SUITE=stable
+          mkdir -p "$REPO_DIR/pool/main/c/chatter"
+          cp "$DEB_FILE" "$REPO_DIR/pool/main/c/chatter/"
+          mkdir -p "$REPO_DIR/dists/$SUITE/main/binary-amd64"
+          apt-ftparchive packages "$REPO_DIR/pool" > "$REPO_DIR/dists/$SUITE/main/binary-amd64/Packages"
+          gzip -kf "$REPO_DIR/dists/$SUITE/main/binary-amd64/Packages"
+          cat <<'EOF' > release.conf
+APT::FTPArchive::Release {
+    Origin "Chatter";
+    Label "Chatter";
+    Suite "stable";
+    Codename "stable";
+    Architectures "amd64";
+    Components "main";
+    Description "Chatter apt repository";
+};
+EOF
+          apt-ftparchive -c release.conf release "$REPO_DIR/dists/$SUITE" > "$REPO_DIR/dists/$SUITE/Release"
+          rm release.conf
+
+      - name: Sign repository metadata
+        if: ${{ secrets.APT_GPG_PRIVATE_KEY != '' }}
+        env:
+          GPG_KEY: ${{ secrets.APT_GPG_PRIVATE_KEY }}
+          GPG_KEY_ID: ${{ secrets.APT_GPG_KEY_ID }}
+          GPG_PASSPHRASE: ${{ secrets.APT_GPG_PASSPHRASE }}
+        run: |
+          cd apt-repo
+          echo "$GPG_KEY" | gpg --batch --import
+          gpg --batch --yes --pinentry-mode loopback --passphrase "$GPG_PASSPHRASE" -abs -o dists/stable/Release.gpg dists/stable/Release
+          gpg --batch --yes --pinentry-mode loopback --passphrase "$GPG_PASSPHRASE" --clearsign -o dists/stable/InRelease dists/stable/Release
+          gpg --batch --yes --armor --export "$GPG_KEY_ID" > KEY.gpg
+
+      - name: Checkout gh-pages branch
+        id: ghpages
+        continue-on-error: true
+        uses: actions/checkout@v4
+        with:
+          ref: gh-pages
+          path: gh-pages
+
+      - name: Prepare gh-pages workspace
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          if [ ! -d gh-pages ]; then
+            mkdir gh-pages
+          fi
+          if [ ! -d gh-pages/.git ]; then
+            cd gh-pages
+            git init
+            git checkout -b gh-pages
+            git remote add origin https://x-access-token:${GH_TOKEN}@github.com/${GH_REPO}.git
+          fi
+
+      - name: Update apt artifacts
+        run: |
+          rm -rf gh-pages/apt
+          mkdir -p gh-pages/apt
+          cp -R apt-repo/. gh-pages/apt/
+
+      - name: Publish to GitHub Pages
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          cd gh-pages
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git remote set-url origin https://x-access-token:${GH_TOKEN}@github.com/${GH_REPO}.git
+          git add apt
+          if git diff --cached --quiet; then
+            echo "No apt changes to publish"
+            exit 0
+          fi
+          git commit -m "Update apt repo for ${REF_NAME}"
+          git push origin HEAD:gh-pages

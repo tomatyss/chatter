@@ -17,6 +17,22 @@ A terminal-based chat interface for Google's Gemini API and local Ollama models,
 
 ## Installation
 
+### Debian / Ubuntu (APT repository)
+
+The GitHub Pages site hosts a signed APT repository for 64-bit Debian-based systems. Add the key and source, then install:
+
+```bash
+curl -fsSL https://tomatyss.github.io/chatter/apt/KEY.gpg | \
+  sudo gpg --dearmor -o /usr/share/keyrings/chatter-archive-keyring.gpg
+echo "deb [arch=amd64 signed-by=/usr/share/keyrings/chatter-archive-keyring.gpg] \
+  https://tomatyss.github.io/chatter/apt stable main" | \
+  sudo tee /etc/apt/sources.list.d/chatter.list
+sudo apt update
+sudo apt install chatter
+```
+
+Replace the base URL if you're working from a fork. The repository currently publishes `amd64` builds produced by the automated release workflow.
+
 ### Via Homebrew (Recommended)
 
 ```bash
@@ -295,6 +311,16 @@ cargo build
 ```bash
 cargo test
 ```
+
+### Debian package publishing
+
+The `Publish Debian Package` workflow builds the `.deb` with `cargo deb`, regenerates the APT metadata, signs the `Release` files, and commits the result to the `gh-pages` branch under `apt/`. To enable signing you need to add repository secrets:
+
+- `APT_GPG_PRIVATE_KEY` – ASCII-armored private key used for signing.
+- `APT_GPG_PASSPHRASE` – Passphrase for the key (leave empty for an unprotected key).
+- `APT_GPG_KEY_ID` – Fingerprint or key ID exported as the public key (`KEY.gpg`).
+
+Once the secrets exist, publishing a GitHub Release (tag `v*`) will automatically update the APT repository at `https://tomatyss.github.io/chatter/apt`.
 
 ### Contributing
 

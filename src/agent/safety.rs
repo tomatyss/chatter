@@ -65,19 +65,40 @@ impl SafetyManager {
 
     /// Check if a tool call is safe to execute
     pub fn check_tool_call(&self, tool_call: &ToolCall) -> Result<()> {
-        // Check file path restrictions for file operations
-        if self.is_file_operation(&tool_call.tool) {
-            self.check_file_path_safety(tool_call)?;
+        match tool_call.tool.as_str() {
+            "read_file" => {
+                let path = self.resolve_path_argument(tool_call, "path", None)?;
+                self.check_file_path_safety(&path)?;
+                self.check_file_extension(tool_call)?;
+            }
+            "write_file" => {
+                let path = self.resolve_path_argument(tool_call, "path", None)?;
+                self.check_file_path_safety(&path)?;
+                self.check_file_extension(tool_call)?;
+            }
+            "update_file" => {
+                let path = self.resolve_path_argument(tool_call, "path", None)?;
+                self.check_file_path_safety(&path)?;
+                self.check_file_extension(tool_call)?;
+            }
+            "file_info" => {
+                let path = self.resolve_path_argument(tool_call, "path", None)?;
+                self.check_file_path_safety(&path)?;
+            }
+            "search_files" => {
+                let directory = self.resolve_path_argument(tool_call, "directory", Some("."))?;
+                self.check_file_path_safety(&directory)?;
+            }
+            "list_directory" => {
+                let path = self.resolve_path_argument(tool_call, "path", Some("."))?;
+                self.check_file_path_safety(&path)?;
+            }
+            _ => {}
         }
 
         // Check file size restrictions
         if tool_call.tool == "write_file" || tool_call.tool == "update_file" {
             self.check_file_size_limits(tool_call)?;
-        }
-
-        // Check file extension restrictions
-        if self.is_file_operation(&tool_call.tool) {
-            self.check_file_extension(tool_call)?;
         }
 
         // Check for potentially dangerous content
@@ -88,23 +109,13 @@ impl SafetyManager {
         Ok(())
     }
 
-    /// Check if a tool operates on files
-    fn is_file_operation(&self, tool_name: &str) -> bool {
-        matches!(
-            tool_name,
-            "read_file" | "write_file" | "update_file" | "file_info"
-        )
-    }
-
     /// Check file path safety
-    fn check_file_path_safety(&self, tool_call: &ToolCall) -> Result<()> {
-        let path = tool_call
-            .parameters
-            .get("path")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| anyhow!("Missing path parameter"))?;
+    fn check_file_path_safety(&self, raw_path: &str) -> Result<()> {
+        if raw_path.trim().is_empty() {
+            return Err(anyhow!("Path parameter cannot be empty"));
+        }
 
-        let path = Path::new(path);
+        let path = Path::new(raw_path);
 
         // Convert to absolute path for checking
         let abs_path = if path.is_absolute() {
@@ -133,14 +144,43 @@ impl SafetyManager {
         }
 
         // Check for path traversal attempts
-        if path.to_string_lossy().contains("..") {
-            return Err(anyhow!("Path traversal detected: {}", path.display()));
+        if raw_path.contains("..") {
+            return Err(anyhow!("Path traversal detected: {}", raw_path));
         }
 
         // Check for suspicious path patterns
         self.check_suspicious_paths(&normalized_path)?;
 
         Ok(())
+    }
+
+    /// Resolve a path-like argument, optionally falling back to a default value
+    fn resolve_path_argument<'a>(
+        &self,
+        tool_call: &'a ToolCall,
+        parameter: &str,
+        default: Option<&'a str>,
+    ) -> Result<String> {
+        if let Some(value) = tool_call.parameters.get(parameter).and_then(|v| v.as_str()) {
+            if value.trim().is_empty() {
+                return Err(anyhow!(
+                    "Parameter '{}' cannot be empty for tool '{}'",
+                    parameter,
+                    tool_call.tool
+                ));
+            }
+            return Ok(value.to_string());
+        }
+
+        if let Some(default_value) = default {
+            return Ok(default_value.to_string());
+        }
+
+        Err(anyhow!(
+            "Missing '{}' parameter for tool '{}'",
+            parameter,
+            tool_call.tool
+        ))
     }
 
     /// Check if a path is within allowed directories
@@ -495,6 +535,52 @@ mod tests {
 
         let tool_call = ToolCall {
             tool: "write_file".to_string(),
+            parameters: params,
+            thought: None,
+            reasoning: None,
+        };
+
+        assert!(safety.check_tool_call(&tool_call).is_err());
+    }
+
+    #[test]
+    fn test_search_files_directory_restriction() {
+        let config = create_test_config();
+        let safety = SafetyManager::new(&config).unwrap();
+
+        let mut params = HashMap::new();
+        params.insert(
+            "directory".to_string(),
+            serde_json::Value::String("/etc".to_string()),
+        );
+        params.insert(
+            "pattern".to_string(),
+            serde_json::Value::String("TODO".to_string()),
+        );
+
+        let tool_call = ToolCall {
+            tool: "search_files".to_string(),
+            parameters: params,
+            thought: None,
+            reasoning: None,
+        };
+
+        assert!(safety.check_tool_call(&tool_call).is_err());
+    }
+
+    #[test]
+    fn test_list_directory_restriction() {
+        let config = create_test_config();
+        let safety = SafetyManager::new(&config).unwrap();
+
+        let mut params = HashMap::new();
+        params.insert(
+            "path".to_string(),
+            serde_json::Value::String("../../../../".to_string()),
+        );
+
+        let tool_call = ToolCall {
+            tool: "list_directory".to_string(),
             parameters: params,
             thought: None,
             reasoning: None,
