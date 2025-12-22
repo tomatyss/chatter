@@ -1,9 +1,8 @@
 [book]
 title = "Chatter Documentation"
 description = "User and developer guide for the Chatter terminal client"
-author = ["Chatter Contributors"]
+authors = ["Chatter Contributors"]
 language = "en"
-multilingual = false
 
 [build]
 create-missing = false
