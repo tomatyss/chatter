@@ -2,7 +2,7 @@
 
 The default mode launches an interactive shell with streaming responses and an always-on history buffer. You can also invoke Chatter for one-shot prompts or scripted automation.
 
-``` bash
+```bash
 chatter
 ```
 
@@ -10,9 +10,8 @@ Inside the interface, type `/help` for a list of commands. Use `/model` or `/pro
 
 For quick questions, pass the prompt as a positional argument:
 
-``` bash
+```bash
 chatter "Explain ownership in Rust"
 ```
 
 Additional flags let you set the model, override the provider, and inject system instructions.
-

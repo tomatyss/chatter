@@ -4,7 +4,7 @@ Agent mode grants the assistant controlled access to your filesystem. When enabl
 
 Enable agent mode from inside a chat session:
 
-``` text
+```text
 /agent on
 /agent allow-path .
 ```
@@ -12,4 +12,3 @@ Enable agent mode from inside a chat session:
 You can inspect history with `/agent history`, view available tools with `/agent tools`, and disable the feature with `/agent off`. The agent never leaves the directories you explicitly allow.
 
 Use agent mode for repetitive local tasks: summarizing files, quick refactors, or generating reports. Keep an eye on the streamed tool output to ensure each action matches your expectations.
-

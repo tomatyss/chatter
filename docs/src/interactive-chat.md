@@ -11,4 +11,3 @@ Useful commands during a chat session:
 - `/load` — load a previous session file
 
 You can toggle providers on the fly with `/provider gemini` or `/provider ollama`, and pick a specific model with `/model <name>`.
-

@@ -11,7 +11,7 @@ Chatter is a Rust 2021 project organised as a single binary crate. Key directori
 
 ## Building and Testing
 
-``` bash
+```bash
 cargo fmt
 cargo clippy -- -D warnings
 cargo test
@@ -21,9 +21,8 @@ Use `cargo build --release` for production builds. The `build.sh` script wraps a
 
 ## Contributing
 
-1.  Fork the repository
-2.  Create a feature branch
-3.  Implement the change and any relevant tests
-4.  Run the command suite above
-5.  Open a pull request with a summary of the change
-
+1. Fork the repository
+2. Create a feature branch
+3. Implement the change and any relevant tests
+4. Run the command suite above
+5. Open a pull request with a summary of the change

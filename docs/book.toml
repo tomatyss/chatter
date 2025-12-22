@@ -1,14 +1,13 @@
 [book]
 title = "Chatter Documentation"
-authors = ["Chatter Contributors"]
 description = "User and developer guide for the Chatter terminal client"
+authors = ["Chatter Contributors"]
 language = "en"
-src = "src"
 
 [build]
-build-dir = "book"
-create-missing = true
+create-missing = false
 
 [output.html]
 default-theme = "light"
 preferred-dark-theme = "navy"
+additional-js = []

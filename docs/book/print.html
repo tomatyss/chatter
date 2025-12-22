@@ -36,7 +36,7 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-909dd796.js";
+            window.path_to_searchindex_js = "searchindex-faa60665.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="toc-3cd2db54.js"></script>
@@ -181,17 +181,6 @@
 <div style="break-before: page; page-break-before: always;"></div>
 <h1 id="installation"><a class="header" href="#installation">Installation</a></h1>
 <p>You can install Chatter either with Homebrew or by building from source. Homebrew is the fastest path for macOS users, while the source build works on every platform supported by Rust.</p>
-<h2 id="debian--ubuntu-apt"><a class="header" href="#debian--ubuntu-apt">Debian / Ubuntu (APT)</a></h2>
-<p>An official APT repository is published at <code>https://tomatyss.github.io/chatter/apt</code>. Import the signing key, add the source, and install:</p>
-<pre><code class="language-bash">curl -fsSL https://tomatyss.github.io/chatter/apt/KEY.gpg | \
-  sudo gpg --dearmor -o /usr/share/keyrings/chatter-archive-keyring.gpg
-echo "deb [arch=amd64 signed-by=/usr/share/keyrings/chatter-archive-keyring.gpg] \
-  https://tomatyss.github.io/chatter/apt stable main" | \
-  sudo tee /etc/apt/sources.list.d/chatter.list
-sudo apt update
-sudo apt install chatter
-</code></pre>
-<p>The repository currently ships 64-bit (amd64) builds created by the automated release workflow. If you are working from a fork, replace the base URL with your own GitHub Pages endpoint.</p>
 <h2 id="homebrew"><a class="header" href="#homebrew">Homebrew</a></h2>
 <pre><code class="language-bash">brew tap tomatyss/chatter
 brew install chatter
@@ -216,7 +205,7 @@ sudo cp target/release/chatter /usr/local/bin/
 <p>Set a Gemini API key once and Chatter will reuse it for future sessions:</p>
 <pre><code class="language-bash">chatter config set-api-key
 </code></pre>
-<p>Alternatively, export the <code>GEMINI_API_KEY</code> environment variable before starting the CLI. The configuration file stores keys securely using your OS keyring when available.</p>
+<p>Alternatively, export the <code>GEMINI_API_KEY</code> environment variable before starting the CLI. Chatter currently stores the API key directly in the plaintext JSON configuration file, so treat <code>config.json</code> as sensitive and manage file permissions accordingly.</p>
 <h2 id="provider-defaults"><a class="header" href="#provider-defaults">Provider Defaults</a></h2>
 <p>Configuration fields worth knowing:</p>
 <ul>

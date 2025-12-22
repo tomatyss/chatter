@@ -10,10 +10,9 @@ Gemini requires an API key from [Google AI Studio](https://aistudio.google.com/a
 
 Install [Ollama](https://ollama.com/) and run `ollama serve`. Chatter connects to `http://localhost:11434` unless you override the endpoint via configuration. Once Ollama is running, pull any supported model, for example:
 
-``` bash
+```bash
 ollama pull llama3.1
 chatter --provider ollama --model llama3.1
 ```
 
 Tool calls are available in Ollama mode, enabling local workflows that need filesystem access coupled with language model reasoning.
-

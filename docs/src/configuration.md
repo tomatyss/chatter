@@ -10,11 +10,11 @@ Chatter stores its configuration on disk so you can reuse API keys, default prov
 
 Set a Gemini API key once and Chatter will reuse it for future sessions:
 
-``` bash
+```bash
 chatter config set-api-key
 ```
 
-Alternatively, export the `GEMINI_API_KEY` environment variable before starting the CLI. The configuration file stores keys securely using your OS keyring when available.
+Alternatively, export the `GEMINI_API_KEY` environment variable before starting the CLI. Chatter currently stores the API key directly in the plaintext JSON configuration file, so treat `config.json` as sensitive and manage file permissions accordingly.
 
 ## Provider Defaults
 
@@ -25,4 +25,3 @@ Configuration fields worth knowing:
 - `ollama.endpoint` — base URL for the Ollama server (defaults to `http://localhost:11434`)
 
 Edit these values through the CLI or by modifying the JSON file directly.
-
